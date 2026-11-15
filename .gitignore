@@ -1,13 +1,17 @@
-# Strictly ignore game dumps, keys, saves, packages, and raw binaries (Aturan 5/6)
+# Strictly ignore game dumps, keys, saves, packages, and raw binaries (Aturan 5/6 & Phase 2 Security Audit)
 00_GAME_DUMP/
 01_KEYS/
+gamedata/
 *BCSAVEDATA*
+*savedata*
 *.elf
 *.ELF
 *.self
 *.SELF
 *.sprx
 *.SPRX
+*.prx
+*.PRX
 *.pkg
 *.PKG
 *.iso
@@ -22,6 +26,30 @@
 *.RIF
 *.klic
 *.KLIC
+*.bik
+*.BIK
+*.xxx
+*.XXX
+*.upk
+*.UPK
+*.tfc
+*.TFC
+*.sav
+*.SAV
+*.sfo
+*.SFO
+*.pfd
+*.PFD
+*.exe
+*.EXE
+*.dll
+*.DLL
+*.lib
+*.LIB
+*.obj
+*.OBJ
+*.pdb
+*.PDB
 
 # Ignore external repositories, build directories, and external tools
 02_REPOS/
