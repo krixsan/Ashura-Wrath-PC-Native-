@@ -135,3 +135,9 @@ Saat dijalankan dengan `PAD_DIAG=1` (otomatis aktif di `08_SCRIPTS\test_qte_ep1.
    [PAD_DIAG][PHYS] t=12.610s flip=625 p=0 src=Keyboard ev=RELEASE btn=(00,00:NONE) L=(128,128)[0.01,0.01] R=(128,128)[0.01,0.01] trig=(0,0)
    ```
 4. **`[PAD_DIAG][GetData]`**: Mencatat paket akhir yang diserahkan ke guest (`src=xinput`, `src=kbd`, `src=PAD_STICK`, atau `src=PAD_SWEEP`).
+
+### 6.1 Bukti Verifikasi Manual QTE Episode 1 (`2026-11-15`)
+- **Log**: `05_LOGS\qte_ep1_manual_20261115_161352\stderr.log` (baris `2138-2201`, rangkuman di `05_LOGS\t1_tier2_pass_audit.txt`).
+- **Hasil**: Input keyboard `Panah Bawah + K` (`btn=(40,00:DOWN) L=(128,255)[0.01,1.00] R=(128,255)[0.01,1.00]`) pada `t=202.546s..207.281s` (`flip=12002..12178`) **lolos QTE `"L-down + R-down"`**, memicu streaming `BC-S000_L01_PDE_02_LOC_INT.XXX` / `BC-S000_L01_PDE_02.XXX` dan melanjutkan gameplay Episode 1 (`qte_t070s.png`..`stage_08_ep1_end.png`).
+- **Catatan `FocusChanges: 20`**: Terdiri atas `1` fokus awal saat window dibuat (`t=0.015s`), `18` perpindahan fokus user (`9` pasang `0 -> 1` saat mengambil tangkapan layar manual / mengecek dokumen lalu kembali ke jendela game), dan `1` unfocus akhir saat harness mengirim `WM_CLOSE` (`t=290.812s`). Fungsi `PrintWindow(hWnd, hdc, 3)` milik harness terbukti tidak mengubah fokus (`0` perubahan fokus sepanjang `t=0.015s..133.250s`).
+

@@ -1,9 +1,11 @@
 # env_ps3_laptop.ps1
 $env:PORT_ROOT = Split-Path -Parent $PSScriptRoot
 $env:PS3RECOMP_DIR = Join-Path $env:PORT_ROOT "02_REPOS\ps3recomp"
+$env:PS3RECOMP_RUNTIME_LIB = Join-Path $env:PORT_ROOT "04_BUILD\ps3recomp_sdk\ps3recomp_runtime.lib"
 
 Write-Host "PORT_ROOT   : $env:PORT_ROOT"
 Write-Host "ps3recomp   : $(Test-Path $env:PS3RECOMP_DIR) ($env:PS3RECOMP_DIR)"
+Write-Host "runtime lib : $(Test-Path $env:PS3RECOMP_RUNTIME_LIB) ($env:PS3RECOMP_RUNTIME_LIB)"
 
 # GCM: deliver VBlank/User handlers on dedicated thread (fix FIFO header holes / bogus flip ids)
 if (-not $env:GCM_HANDLER_THREAD) { $env:GCM_HANDLER_THREAD = '1' }
