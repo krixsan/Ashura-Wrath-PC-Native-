@@ -1,0 +1,99 @@
+================================================================================
+AUDIT PARTIKEL QUADS (t025s: 21 DRAW DENGAN pos0=(0,0,0))
+================================================================================
+Tanggal        : 2026-11-15
+Target         : Episode 1 frame t025s (05_LOGS\draw_census_20261115_111217\census_t025s.csv)
+Sumber Repo    :
+  - 02_REPOS\ps3recomp\docs\RSX_GRAPHICS.md:264-280 (QUADS prim=8 -> 2 triangles / 6 verts per quad)
+  - 02_REPOS\ps3recomp\libs\video\rsx_d3d12_backend.c:6405-6422, 7528-7557, 8155-8223, 8814-8828
+  - 02_REPOS\ps3recomp\libs\video\rsx_vertex_fetch.c:29-63, 80-95 (PR #597 b3150f3c: w=1.0f expansion)
+  - 04_BUILD\shader_cache\rsx_shader_cache_v2\V_48BCB76EE0B0750F_00004E36.bin (vs=40, vp=0xA82D03FA)
+  - 04_BUILD\shader_cache\rsx_shader_cache_v2\V_D4604C5C7BE0550C_00004DE9.bin (vs=31, vp=0x5E4D2063)
+
+1. RINCIAN 21 DRAW DENGAN a0_zero > 0 / pos0=(0,0,0) PADA t025s
+--------------------------------------------------------------------------------
+Dari total 242 draw (83 di antaranya prim=8 QUADS) pada frame t025s:
+- 20 draw adalah QUADS (prim=8, indexed=0 / d3d12_draw_arrays) partikel sprite UE3:
+  * 10 draw vs=40 (vp_hash=0xA82D03FA, 162 instruksi VP, stride=80B):
+    vtx_sig = a0:T2x3s80@M|a1:T2x1s80@M|a2:T2x3s80@M|a5:T2x3s80@M|a8:T2x2s80@M|a9:T2x4s80@M|a11:T2x4s80@M
+    Draw IDs: 137, 141, 156, 160, 164, 168, 172, 176, 180, 184
+    (init_count=12 atau 16 -> final_verts=18 atau 24, yaitu 3 atau 4 quad partikel).
+  * 10 draw vs=31 (vp_hash=0x5E4D2063, 161 instruksi VP, stride=64B):
+    vtx_sig = a0:T2x3s64@M|a1:T2x1s64@M|a2:T2x3s64@M|a5:T2x3s64@M|a8:T2x2s64@M|a9:T2x4s64@M
+    Draw IDs: 138, 142, 157, 161, 165, 169, 173, 177, 181, 185
+    (init_count=8 -> final_verts=12, yaitu 2 quad partikel).
+- 1 draw adalah TRIS (prim=5, indexed=1, id=241, vs=11, vp_hash=0x8ED1F534):
+  vtx_sig = a0:T2x4s48@M|a3:T2x4s48@M|a4:T4x4s48@M|a8:T2x2s48@M
+  Elemen UI 2D (final_verts=8, final_indices=12) yang sudut kiri-atasnya berada di (0,0,0,0.100).
+
+2. MENGAPA CENSUS SUMMARY MENAMPILKAN "i=0/6/30/36/288" PADA QUADS NON-INDEXED
+--------------------------------------------------------------------------------
+- Seluruh 83 draw QUADS pada t025s adalah non-indexed (indexed=0, dipanggil lewat d3d12_draw_arrays).
+- Fungsi upload_quads_vp (rsx_d3d12_backend.c:7528) mengekspansi setiap 4 vertex quad menjadi
+  6 vertex triangle-list (final_verts = (init_count / 4) * 6, mis. 12 -> 18, 8 -> 12, 16 -> 24).
+- Saat d3d12_draw_arrays mengisi D3D12DrawRecord* dr = &s_d3d.draws[s_d3d.draw_count]
+  (rsx_d3d12_backend.c:8165), struct dr tidak di-memset dan field dr->index_count tidak di-nolkan
+  (hanya dr->indexed yang di-reset ke 0 di akhir render_frame baris 6550).
+- Saat eksekusi D3D12 (rsx_d3d12_backend.c:6405-6422), karena dr->indexed == 0, backend memanggil:
+    DrawInstanced(cmd_list, dr->vertex_count, 1, dr->vb_byte_offset / 256, 0)
+  sehingga dr->index_count sama sekali TIDAK dipakai oleh GPU.
+- Nilai final_indices (i=0/6/30/36/288) di CSV/summary hanyalah nilai sisa (stale) dr->index_count
+  pada slot array s_d3d.draws[slot] dari frame sebelumnya ketika slot tersebut dipakai oleh draw
+  indexed. Bukan bug rendering.
+
+3. BUKTI HLSL VERTEX SHADER (vs=40 & vs=31): BAGAIMANA POSISI PARTIKEL DIHITUNG
+--------------------------------------------------------------------------------
+Hasil dekompilasi HLSL pada shader cache:
+- vs=40 (vp=0xA82D03FA -> V_48BCB76EE0B0750F_00004E36.bin, 162 instruksi, membaca v[0,1,2,5,8,9,11])
+- vs=31 (vp=0x5E4D2063 -> V_D4604C5C7BE0550C_00004DE9.bin, 161 instruksi, membaca v[0,1,2,5,8,9])
+  (Perbedaan tunggal vs=40 vs vs=31: vs=40 menyalin DynamicParameter o[9] = v[11] pada _pc=87).
+
+Alur transformasi posisi di dalam vertex shader (FParticleSpriteVertexFactory UE3):
+a) Transformasi pusat partikel (ATTR0 / v[0]) dengan matriks LocalToWorld di vp_c[200..203]:
+     r[0] = v[0].x * vp_c[200] + v[0].y * vp_c[201] + v[0].z * vp_c[202] + v[0].w * vp_c[203];
+   Karena v[0] bertipe T2x3 (FLOAT3), rsx_fetch_attrib (PR #597) mengisi v[0].w = 1.0f.
+   Ketika v[0].xyz = (0, 0, 0), maka r[0] = 1.0 * vp_c[203], yaitu posisi world-space dari
+   origin emitter partikel tersebut!
+b) Transformasi OldPosition (ATTR2 / v[2]) dengan vp_c[200..203].xyz untuk vektor kecepatan:
+     r[1].xyz = v[2].x * vp_c[200].xyz + v[2].y * vp_c[201].xyz + v[2].z * vp_c[202].xyz + v[2].w * vp_c[203].xyz;
+c) Ekspansi 4 sudut quad billboard dari UV (ATTR8 / v[8]), Ukuran 2D (ATTR5 / v[5]), dan Rotasi (ATTR1 / v[1]):
+     r[2].xy  = v[8].yx - vp_c[452].xx;           // UV (0..1) digeser menjadi corner offset (-0.5..+0.5)
+     r[11].xy = v[5].xy * r[2].yx;                // Dikali ukuran sprite 2D (Size.xy dari ATTR5)
+     // Sumbu kamera/rotasi dihitung dari sin(v[1].x), cos(v[1].x), vp_c[464] (CameraRight), vp_c[465] (CameraUp)
+     r[3].xyzw = r[11].xxxx * r[3].xyzw + r[0].xyzw;
+     r[2].xyzw = r[2].xyzw  * r[11].yyyy + r[3].xyzw;  // Posisi world-space tiap sudut quad!
+d) Proyeksi ke clip-space (o[0]) dengan matriks ViewProjection di vp_c[0..3]:
+     r[0] = r[2].x * vp_c[0] + r[2].y * vp_c[1] + r[2].z * vp_c[2] + r[2].w * vp_c[3];
+     o[0].xy = r[0].xy + (r[0].w * vp_c[467].z) * vp_c[467].xy;
+     o[0].zw = r[0].zw;
+
+4. POLA EMITTER LOCAL-SPACE vs WORLD-SPACE PADA FRAME t025s
+--------------------------------------------------------------------------------
+Dari 82 draw QUADS partikel (32 draw vs=40 + 50 draw vs=31):
+- 62 draw memiliki pos0 != (0,0,0):
+  * Emitter world-space (bUseLocalSpace=FALSE): mis. id=114..136, 149, 151, 152, 154, 155
+    dengan pos0 sekitar (-156267, -3922, 173094).
+  * Emitter local-space dengan offset tetap di kapal: mis. 3 nosel thruster pada id=148, 150, 153
+    dengan pos0 = (10, 0, 125), (10, 110, -65), (10, -110, -65) (dan id=191, 194, 197).
+  * Emitter local-space sepanjang sumbu X lokal meriam/beam: 10 draw vs=40 (id=139, 143, 158,
+    162, 166, 170, 174, 178, 182, 186) dengan pos0 = (2080..2163, 0, 0).
+- 20 draw memiliki pos0 = (0,0,0) (a0_same=1):
+  Muncul secara berpasangan (1 draw vs=40 diikuti 1 draw vs=31) tepat di awal 10 kelompok
+  emitter meriam/beam yang identik (id=137-140, 141-144, 156-159, 160-163, 164-167, 168-171,
+  172-175, 176-179, 180-183, 184-187):
+    [1] QUADS vs=40 (init=12/16, fv=18/24): pos0=(0,0,0) -> cahaya inti moncong (local origin)
+    [2] QUADS vs=31 (init=8,     fv=12)   : pos0=(0,0,0) -> flare sekunder moncong (local origin)
+    [3] QUADS vs=40 (init=12/16, fv=18/24): pos0=(2122.312, 0, 0) -> partikel sepanjang sumbu X lokal
+    [4] TRI_STRIP vs=52 (init=40, fv=114) : pos0=(-151759..-154257, ...) -> pita beam world-space
+
+5. KESIMPULAN
+--------------------------------------------------------------------------------
+pos0=(0,0,0) pada 20 draw QUADS partikel (dan 1 draw UI TRIS) di frame t025s adalah NORMAL
+untuk UE3 FParticleSpriteVertexFactory dengan bUseLocalSpace=TRUE:
+- Posisi pusat partikel berada di origin lokal emitter (0,0,0,1), lalu ditransformasikan ke
+  world-space oleh matriks per-draw LocalToWorld di vp_c[200..203] (menghasilkan vp_c[203]).
+- Keempat sudut quad diekspansi di vertex shader menggunakan UV (ATTR8), Size (ATTR5),
+  Rotation (ATTR1), dan vektor kamera (vp_c[464..465]).
+- TIDAK ADA BUG pada jalurnya; sesuai instruksi ("Jangan ubah kode sebelum ada bukti bahwa ini bug"),
+  tidak ada perubahan kode yang dilakukan.
+================================================================================

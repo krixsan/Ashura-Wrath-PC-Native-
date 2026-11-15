@@ -1,0 +1,279 @@
+From 3a88706950f6a51434c4817dcd502f86539d38ad Mon Sep 17 00:00:00 2001
+From: KRIXSAN <krixsan@local>
+Date: Sun, 15 Nov 2026 12:59:58 +0800
+Subject: [PATCH 1/6] rsx_vertex_fetch: return early after decoding CMP (type
+ 6) attributes
+
+CMP (CELL_GCM_VERTEX_CMP, type 6) packs three signed 11-11-10 components into one 32-bit word per vertex regardless of whether the guest sets size=1 or size=3 (e.g. Unreal Engine 3 a0:T6x1s32@L). Previously case 6 fell through to the post-switch scalar component expansion from PR #597 (b3150f3c), which zeroed out[1] and out[2] whenever size == 1. Return early from case 6 to match rsx_live_draw.c and rsx_vertex_compact.c.
+---
+ CMakeLists.txt                           |   9 +
+ libs/video/rsx_vertex_fetch.c            |   4 +
+ libs/video/tests/test_vertex_fetch_cmp.c | 221 +++++++++++++++++++++++
+ 3 files changed, 234 insertions(+)
+ create mode 100644 libs/video/tests/test_vertex_fetch_cmp.c
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a39405d6..55683685 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -516,6 +516,15 @@ if(PS3RECOMP_BUILD_TESTS)
+     target_include_directories(test_vertex_current_color PRIVATE include libs/video)
+     add_test(NAME vertex_current_color COMMAND test_vertex_current_color)
+ 
++    # CMP (type 6, 11-11-10) vertex attributes pack x, y, z into one 32-bit word
++    # even when a->size == 1; exercise rsx_fetch_attrib against rsx_vertex_compact.
++    add_executable(test_vertex_fetch_cmp
++        libs/video/tests/test_vertex_fetch_cmp.c
++        libs/video/rsx_vertex_fetch.c
++        libs/video/rsx_vertex_compact.c)
++    target_include_directories(test_vertex_fetch_cmp PRIVATE include libs/video)
++    add_test(NAME vertex_fetch_cmp COMMAND test_vertex_fetch_cmp)
++
+ 
+     find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
+     if(Python3_Interpreter_FOUND)
+diff --git a/libs/video/rsx_vertex_fetch.c b/libs/video/rsx_vertex_fetch.c
+index 7d08c22b..fc0d24c9 100644
+--- a/libs/video/rsx_vertex_fetch.c
++++ b/libs/video/rsx_vertex_fetch.c
+@@ -110,6 +110,10 @@ void rsx_fetch_attrib(const rsx_state* st, int idx, u32 vi, float out[4])
+             out[1] = (float)y / 1023.0f;
+             out[2] = (float)z / 511.0f;
+             out[3] = 1.0f;
++            /* CMP packs x, y, z into one 32-bit element even when a->size == 1;
++             * returning here (matching rsx_live_draw.c / rsx_vertex_compact.c)
++             * prevents the scalar size<4 expansion below from zeroing y and z. */
++            return;
+         }
+         break;
+     case 7: /* UB256: u8 unnormalized */
+diff --git a/libs/video/tests/test_vertex_fetch_cmp.c b/libs/video/tests/test_vertex_fetch_cmp.c
+new file mode 100644
+index 00000000..67144f8d
+--- /dev/null
++++ b/libs/video/tests/test_vertex_fetch_cmp.c
+@@ -0,0 +1,221 @@
++/*
++ * rsx_fetch_attrib on CELL_GCM_VERTEX_CMP (type 6, 11-11-10 packed XYZ)
++ * when the attribute descriptor declares size 1, 2, 3, or 4.
++ *
++ * Unreal Engine 3 (e.g. Asura's Wrath) binds compressed skeletal positions and
++ * tangent basis vectors as type=6, size=1 (one 32-bit word per vertex).
++ * PR #529 (36b1ea43) added case 6 with break, and PR #597 (b3150f3c) added the
++ * post-switch scalar component expansion (n < 3 -> z = 0, n < 2 -> y = 0).
++ * Because n = a->size = 1, case 6 fell through and zeroed y and z on every
++ * size=1 CMP attribute, whereas rsx_vertex_compact.c and rsx_live_draw.c
++ * return immediately after decoding all four components of CMP.
++ *
++ * Every CMP word at size 1..4 must decode identically in rsx_fetch_attrib,
++ * rsx_vertex_fetch_one, and rsx_vertex_fetch_many, while ordinary scalar
++ * formats with size < 4 must still expand missing y,z = 0.0f and w = 1.0f.
++ *
++ * Build (from the repo root):
++ *   clang -std=gnu17 -O2 -Wall -Wextra -Wno-unused-parameter -I include -I libs/video \
++ *     -o /tmp/test_vertex_fetch_cmp libs/video/tests/test_vertex_fetch_cmp.c \
++ *     libs/video/rsx_vertex_fetch.c libs/video/rsx_vertex_compact.c \
++ *     libs/video/rsx_dispatch.c
++ */
++#include "rsx_vertex_fetch.h"
++#include "rsx_vertex_compact.h"
++#include "rsx_vertex_formats.h"
++
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++
++enum { GUEST_BYTES = 1 << 16 };
++static uint8_t s_guest[GUEST_BYTES];
++uint8_t* vm_base = s_guest;
++
++u32 cellGcmResolveLocated(int location, u32 offset)
++{
++    (void)location;
++    return offset & (GUEST_BYTES - 1u);
++}
++
++static const u8* guest_ptr(void* user, u32 location, u32 offset, u32 min_bytes)
++{
++    (void)user;
++    (void)location;
++    if ((u64)offset + min_bytes > GUEST_BYTES) return NULL;
++    return s_guest + offset;
++}
++
++static int fails;
++#define CHECK(c, ...) do { if (!(c)) { fails++; if (fails <= 20) { \
++    printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } } while (0)
++
++static uint64_t rng = 0x243F6A8885A308D3ull;
++static uint32_t rnd(void)
++{
++    rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17;
++    return (uint32_t)rng;
++}
++
++static u32 pack_cmp(s32 x, s32 y, s32 z)
++{
++    return ((u32)(x & 0x7FF) << 0) |
++           ((u32)(y & 0x7FF) << 11) |
++           ((u32)(z & 0x3FF) << 22);
++}
++
++static void put_be32(u8* p, u32 w)
++{
++    p[0] = (u8)(w >> 24);
++    p[1] = (u8)(w >> 16);
++    p[2] = (u8)(w >> 8);
++    p[3] = (u8)w;
++}
++
++static void put_be_f32(u8* p, float f)
++{
++    u32 u;
++    memcpy(&u, &f, 4);
++    put_be32(p, u);
++}
++
++static void test_cmp_sizes_match_compact(void)
++{
++    static const struct { s32 x, y, z; } vectors[] = {
++        {    85, -1001, -297 }, /* Asura's Wrath T6x1 sample (~0.083, -0.978, -0.581) */
++        {  1023,  1023,  511 }, /* max positive */
++        { -1024, -1024, -512 }, /* min negative */
++        {     0,   512, -256 }, /* X = 0, Y and Z non-zero */
++        {  -364,   -81, -109 }, /* all negative */
++    };
++    const u32 base_off = 0x0200u;
++    const u32 nvec = (u32)(sizeof(vectors) / sizeof(vectors[0]));
++
++    memset(s_guest, 0, sizeof(s_guest));
++    for (u32 i = 0; i < nvec; i++) {
++        put_be32(&s_guest[base_off + i * 4u],
++                 pack_cmp(vectors[i].x, vectors[i].y, vectors[i].z));
++    }
++
++    for (u32 sz = 1; sz <= 4; sz++) {
++        rsx_state st;
++        memset(&st, 0, sizeof(st));
++        st.vertex_attribs[0].enabled = 1;
++        st.vertex_attribs[0].type = RSX_VTX_TYPE_CMP32;
++        st.vertex_attribs[0].size = (u8)sz;
++        st.vertex_attribs[0].stride = 4;
++        st.vertex_attribs[0].offset = base_off;
++
++        rsx_vertex_fetch_plan plan;
++        memset(&plan, 0, sizeof(plan));
++        rsx_vertex_layout_plan_init(&plan.layout, 1u);
++        plan.guest_ptr = guest_ptr;
++        plan.attr[0].desc.type = RSX_VTX_TYPE_CMP32;
++        plan.attr[0].desc.size = (u8)sz;
++        plan.attr[0].desc.stride = 4;
++        plan.attr[0].desc.offset = base_off;
++        plan.attr[0].elem_size = rsx_vertex_attrib_size(RSX_VTX_TYPE_CMP32, sz);
++        plan.attr[0].stride = 4;
++
++        for (u32 i = 0; i < nvec; i++) {
++            float got[4] = { -9.0f, -9.0f, -9.0f, -9.0f };
++            float compact_one[4] = { 0 };
++            rsx_vertex_ref ref = { i, 0 };
++            const float want_x = (float)vectors[i].x / 1023.0f;
++            const float want_y = (float)vectors[i].y / 1023.0f;
++            const float want_z = (float)vectors[i].z / 511.0f;
++
++            rsx_fetch_attrib(&st, 0, i, got);
++            CHECK(rsx_vertex_fetch_one(&plan, &ref, (u8*)compact_one),
++                  "compact fetch failed at size=%u vec=%u", sz, i);
++            CHECK(got[0] == want_x && got[1] == want_y &&
++                  got[2] == want_z && got[3] == 1.0f,
++                  "CMP size=%u vec=%u: got (%g,%g,%g,%g), want (%g,%g,%g,1)",
++                  sz, i, got[0], got[1], got[2], got[3], want_x, want_y, want_z);
++            CHECK(memcmp(got, compact_one, sizeof(got)) == 0,
++                  "CMP size=%u vec=%u: rsx_fetch_attrib differs from rsx_vertex_fetch_one",
++                  sz, i);
++        }
++    }
++}
++
++static void test_cmp_random_words(void)
++{
++    enum { WORDS = 1000 };
++    const u32 base_off = 0x1000u;
++    for (u32 i = 0; i < WORDS; i++)
++        put_be32(&s_guest[base_off + i * 4u], rnd());
++
++    for (u32 sz = 1; sz <= 4; sz++) {
++        rsx_state st;
++        memset(&st, 0, sizeof(st));
++        st.vertex_attribs[3].enabled = 1;
++        st.vertex_attribs[3].type = RSX_VTX_TYPE_CMP32;
++        st.vertex_attribs[3].size = (u8)sz;
++        st.vertex_attribs[3].stride = 4;
++        st.vertex_attribs[3].offset = base_off;
++
++        rsx_vertex_fetch_plan plan;
++        memset(&plan, 0, sizeof(plan));
++        rsx_vertex_layout_plan_init(&plan.layout, 1u << 3);
++        plan.guest_ptr = guest_ptr;
++        plan.attr[3].desc.type = RSX_VTX_TYPE_CMP32;
++        plan.attr[3].desc.size = (u8)sz;
++        plan.attr[3].desc.stride = 4;
++        plan.attr[3].desc.offset = base_off;
++        plan.attr[3].elem_size = 4;
++        plan.attr[3].stride = 4;
++
++        for (u32 i = 0; i < WORDS; i++) {
++            float got[4] = { 0 }, one[4] = { 0 };
++            rsx_vertex_ref ref = { i, 0 };
++            rsx_fetch_attrib(&st, 3, i, got);
++            CHECK(rsx_vertex_fetch_one(&plan, &ref, (u8*)one) &&
++                  memcmp(got, one, sizeof(got)) == 0,
++                  "random CMP size=%u word=%u mismatch: (%g,%g,%g,%g) vs (%g,%g,%g,%g)",
++                  sz, i, got[0], got[1], got[2], got[3],
++                  one[0], one[1], one[2], one[3]);
++        }
++    }
++}
++
++/* PR #597: non-CMP attributes with size < 4 must still expand missing y,z = 0
++ * and w = 1 even if vertex_data4f contains non-zero values or zeros. */
++static void test_scalar_expansion_preserved(void)
++{
++    const u32 base_off = 0x0400u;
++    put_be_f32(&s_guest[base_off + 0], 2.5f);
++    put_be_f32(&s_guest[base_off + 4], -3.5f);
++    put_be_f32(&s_guest[base_off + 8], 4.25f);
++
++    for (u32 sz = 1; sz <= 3; sz++) {
++        rsx_state st;
++        memset(&st, 0, sizeof(st));
++        st.vertex_data4f[0][0] = 99.0f;
++        st.vertex_data4f[0][1] = 88.0f;
++        st.vertex_data4f[0][2] = 77.0f;
++        st.vertex_data4f[0][3] = 0.0f;
++        st.vertex_attribs[0].enabled = 1;
++        st.vertex_attribs[0].type = RSX_VTX_TYPE_FLOAT;
++        st.vertex_attribs[0].size = (u8)sz;
++        st.vertex_attribs[0].stride = (u8)(sz * 4u);
++        st.vertex_attribs[0].offset = base_off;
++
++        float got[4] = { 0 };
++        rsx_fetch_attrib(&st, 0, 0, got);
++        const float want_y = (sz >= 2) ? -3.5f : 0.0f;
++        const float want_z = (sz >= 3) ?  4.25f : 0.0f;
++        CHECK(got[0] == 2.5f && got[1] == want_y && got[2] == want_z && got[3] == 1.0f,
++              "FLOAT size=%u expansion: got (%g,%g,%g,%g), want (2.5,%g,%g,1)",
++              sz, got[0], got[1], got[2], got[3], want_y, want_z);
++    }
++}
++
++int main(void)
++{
++    test_cmp_sizes_match_compact();
++    test_cmp_random_words();
++    test_scalar_expansion_preserved();
++    printf("test_vertex_fetch_cmp: %d failure(s)\n", fails);
++    return fails ? 1 : 0;
++}
+-- 
+2.52.0.windows.1
+

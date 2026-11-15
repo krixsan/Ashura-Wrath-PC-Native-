@@ -1,0 +1,565 @@
+From 0a15f541dff62815be1946c4db6b4b9b3aab487e Mon Sep 17 00:00:00 2001
+From: KRIXSAN <krixsan@local>
+Date: Sun, 15 Nov 2026 12:59:58 +0800
+Subject: [PATCH 3/6] runtime: PPU loader/fs, LV2 syscalls, and HLE module
+ adjustments for Asura's Wrath
+
+---
+ libs/misc/cellOvis.c            |  10 +--
+ libs/misc/cellOvis.h            |   2 +-
+ libs/network/cellNetCtl.c       |   4 +-
+ libs/network/sceNpTrophy.c      |  25 +++---
+ libs/network/sceNpTrophy.h      |   2 +-
+ runtime/ppu/ppu_fs.cpp          |   9 +-
+ runtime/ppu/ppu_loader.cpp      |   9 +-
+ runtime/syscalls/lv2_register.c |  17 ++++
+ runtime/syscalls/sys_event.c    |  26 +++---
+ runtime/syscalls/sys_memory.c   |  41 ++++++++--
+ runtime/syscalls/sys_memory.h   |   2 +-
+ runtime/syscalls/sys_timer.c    | 141 ++++++++++++++++++++++++++------
+ 12 files changed, 219 insertions(+), 69 deletions(-)
+
+diff --git a/libs/misc/cellOvis.c b/libs/misc/cellOvis.c
+index 7e6968a0..847267f9 100644
+--- a/libs/misc/cellOvis.c
++++ b/libs/misc/cellOvis.c
+@@ -32,13 +32,11 @@ s32 cellOvisTerm(void)
+     return CELL_OK;
+ }
+ 
+-s32 cellOvisGetOverlayTableSize(const char* filePath, u32* tableSize)
++s32 cellOvisGetOverlayTableSize(const char* elf)
+ {
+-    (void)filePath;
+-    if (!s_initialized) return (s32)CELL_OVIS_ERROR_NOT_INITIALIZED;
+-    if (!tableSize) return (s32)CELL_OVIS_ERROR_INVALID_ARGUMENT;
+-    vm_write32((u32)(uintptr_t)tableSize, (u32)0);
+-    return CELL_OK;
++    (void)elf;
++    /* PS3 libovis returns byte size directly (>=0) or negative error without requiring cellOvisInit */
++    return 0;
+ }
+ 
+ s32 cellOvisCreateOverlay(const void* table, u32 tableSize, CellOvisHandle* handle)
+diff --git a/libs/misc/cellOvis.h b/libs/misc/cellOvis.h
+index 550f74d0..53f41b27 100644
+--- a/libs/misc/cellOvis.h
++++ b/libs/misc/cellOvis.h
+@@ -27,7 +27,7 @@ typedef u32 CellOvisHandle;
+ s32 cellOvisInit(void);
+ s32 cellOvisTerm(void);
+ 
+-s32 cellOvisGetOverlayTableSize(const char* filePath, u32* tableSize);
++s32 cellOvisGetOverlayTableSize(const char* elf);
+ s32 cellOvisCreateOverlay(const void* table, u32 tableSize, CellOvisHandle* handle);
+ s32 cellOvisDestroyOverlay(CellOvisHandle handle);
+ 
+diff --git a/libs/network/cellNetCtl.c b/libs/network/cellNetCtl.c
+index 8b002ffe..f8f6e060 100644
+--- a/libs/network/cellNetCtl.c
++++ b/libs/network/cellNetCtl.c
+@@ -10,6 +10,7 @@
+ #include "../../runtime/ppu/ppu_memory.h"   /* vm_base, vm_write32 (guest mem) */
+ #include "ps3emu/endian.h" /* ps3_bswap32 -- CellNetCtlInfo/NatInfo integer fields are guest big-endian */
+ #include "np_psnr.h"      /* np_psnr_identity -- the player name the MAC derives from */
++#include "ps3emu/log_first.h"
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -165,7 +166,8 @@ s32 cellNetCtlGetState(s32* state)
+          * after which the game proceeds offline. Still write a sane state
+          * for callers that ignore the return value. */
+         vm_write32((uint32_t)(uintptr_t)state, CELL_NET_CTL_STATE_Disconnected);
+-        printf("[cellNetCtl] GetState() -> error NOT_INITIALIZED (offline mode)\n");
++        { static int _n = 0; if (PS3_LOG_FIRST(_n, 8))
++            printf("[cellNetCtl] GetState() -> error NOT_INITIALIZED (offline mode)\n"); }
+         return CELL_NET_CTL_ERROR_NOT_INITIALIZED;
+     }
+ 
+diff --git a/libs/network/sceNpTrophy.c b/libs/network/sceNpTrophy.c
+index d956e6dd..5f990070 100644
+--- a/libs/network/sceNpTrophy.c
++++ b/libs/network/sceNpTrophy.c
+@@ -409,11 +409,11 @@ s32 sceNpTrophyGetGameInfo(SceNpTrophyContext context,
+ 
+     if (details) {
+         memset(details, 0, sizeof(SceNpTrophyGameDetails));
+-        details->numTrophies = 32; /* default trophy set */
+-        details->numPlatinum = 1;
+-        details->numGold     = 2;
+-        details->numSilver   = 8;
+-        details->numBronze   = 21;
++        details->numTrophies = ps3_bswap32(32); /* default trophy set */
++        details->numPlatinum = ps3_bswap32(1);
++        details->numGold     = ps3_bswap32(2);
++        details->numSilver   = ps3_bswap32(8);
++        details->numBronze   = ps3_bswap32(21);
+         strncpy(details->title, "PS3 Game",
+                 SCE_NP_TROPHY_GAME_TITLE_MAX_SIZE - 1);
+         strncpy(details->description, "Trophy set",
+@@ -421,14 +421,15 @@ s32 sceNpTrophyGetGameInfo(SceNpTrophyContext context,
+     }
+ 
+     if (data) {
++        u32 unlocked = trophy_count_unlocked(&s_contexts[context]);
+         memset(data, 0, sizeof(SceNpTrophyGameData));
+-        data->unlockedTrophies = trophy_count_unlocked(&s_contexts[context]);
++        data->unlockedTrophies = ps3_bswap32(unlocked);
+         /* Count by grade would require per-trophy grade data;
+          * return conservative estimates */
+         data->unlockedPlatinum = 0;
+         data->unlockedGold     = 0;
+         data->unlockedSilver   = 0;
+-        data->unlockedBronze   = data->unlockedTrophies;
++        data->unlockedBronze   = ps3_bswap32(unlocked);
+     }
+ 
+     printf("[sceNpTrophy] GetGameInfo(ctx=%d)\n", context);
+@@ -460,8 +461,8 @@ s32 sceNpTrophyGetTrophyInfo(SceNpTrophyContext context,
+ 
+     if (details) {
+         memset(details, 0, sizeof(SceNpTrophyDetails));
+-        details->trophyId = (u32)trophyId;
+-        details->trophyGrade = SCE_NP_TROPHY_GRADE_BRONZE;
++        details->trophyId    = ps3_bswap32((u32)trophyId);
++        details->trophyGrade = ps3_bswap32(SCE_NP_TROPHY_GRADE_BRONZE);
+         snprintf(details->name, SCE_NP_TROPHY_NAME_MAX_SIZE,
+                  "Trophy %d", trophyId);
+         snprintf(details->description, SCE_NP_TROPHY_DESC_MAX_SIZE,
+@@ -471,9 +472,9 @@ s32 sceNpTrophyGetTrophyInfo(SceNpTrophyContext context,
+ 
+     if (data) {
+         memset(data, 0, sizeof(SceNpTrophyData));
+-        data->trophyId = (u32)trophyId;
+-        data->unlocked = s_contexts[context].unlocked[trophyId];
+-        data->timestamp = s_contexts[context].unlock_time[trophyId];
++        data->trophyId  = ps3_bswap32((u32)trophyId);
++        data->unlocked  = s_contexts[context].unlocked[trophyId];
++        data->timestamp = ps3_bswap64(s_contexts[context].unlock_time[trophyId]);
+     }
+ 
+     return CELL_OK;
+diff --git a/libs/network/sceNpTrophy.h b/libs/network/sceNpTrophy.h
+index 48faefdc..c5ae8c45 100644
+--- a/libs/network/sceNpTrophy.h
++++ b/libs/network/sceNpTrophy.h
+@@ -44,7 +44,7 @@ extern "C" {
+ 
+ #define SCE_NP_TROPHY_MAX_NUM_TROPHIES      128
+ #define SCE_NP_TROPHY_NAME_MAX_SIZE         128
+-#define SCE_NP_TROPHY_DESC_MAX_SIZE         256
++#define SCE_NP_TROPHY_DESC_MAX_SIZE         1024
+ #define SCE_NP_TROPHY_GAME_TITLE_MAX_SIZE   128
+ #define SCE_NP_TROPHY_GAME_DESC_MAX_SIZE    1024
+ 
+diff --git a/runtime/ppu/ppu_fs.cpp b/runtime/ppu/ppu_fs.cpp
+index 37e37454..096c09e4 100644
+--- a/runtime/ppu/ppu_fs.cpp
++++ b/runtime/ppu/ppu_fs.cpp
+@@ -174,10 +174,11 @@ static void host_path(char* out, size_t cap, const char* guest)
+      * Serve it from a real dev_flash tree instead ($PS3_DEV_FLASH, else RPCS3's). */
+     if (strncmp(guest, "/dev_flash/", 11) == 0) {
+         const char* fw = ps3_env_once("PS3_DEV_FLASH");
+-        if (!fw || !*fw) fw = "D:/recomp/tools/rpcs3/dev_flash";
+-        ps3_dev_flash_path(out, cap, fw, guest + 11);
+-        for (char* p = out; *p; p++) if (*p == '\\') *p = '/';
+-        return;
++        if (fw && *fw) {
++            ps3_dev_flash_path(out, cap, fw, guest + 11);
++            for (char* p = out; *p; p++) if (*p == '\\') *p = '/';
++            return;
++        }
+     }
+ 
+     static const char* mounts[] = {
+diff --git a/runtime/ppu/ppu_loader.cpp b/runtime/ppu/ppu_loader.cpp
+index ea7de18a..497eb693 100644
+--- a/runtime/ppu/ppu_loader.cpp
++++ b/runtime/ppu/ppu_loader.cpp
+@@ -2852,10 +2852,13 @@ static void ps3_indirect_call_impl(ppu_context* ctx)
+             uint32_t opd = (uint32_t)ctx->gpr[12];
+             uint32_t o0 = (opd && vm_base) ? __builtin_bswap32(*(volatile uint32_t*)(vm_base+opd)) : 0;
+             fprintf(stderr, "[ppu] bctr to NULL from %s r12(opd)=0x%08X opd[0]=0x%08X "
+-                    "(r3=0x%08X r4=0x%08X "
++                    "(r3=0x%08X r4=0x%08X lr=0x%08X "
+                     "tid=%llu) -- returning with r3 untouched\n", who, opd, o0,
+-                    (uint32_t)ctx->gpr[3], (uint32_t)ctx->gpr[4],
+-                    (unsigned long long)ctx->thread_id); } }
++                    (uint32_t)ctx->gpr[3], (uint32_t)ctx->gpr[4], (uint32_t)ctx->lr,
++                    (unsigned long long)ctx->thread_id); }
++          static int tid_dumped[64];
++          uint64_t t = ctx->thread_id;
++          if (t < 64 && tid_dumped[t] < 3) { tid_dumped[t]++; ppu_dump_guest_stack(ctx, "bctr-null"); } }
+         return;
+         }
+     }
+diff --git a/runtime/syscalls/lv2_register.c b/runtime/syscalls/lv2_register.c
+index e5be07d6..71f66afc 100644
+--- a/runtime/syscalls/lv2_register.c
++++ b/runtime/syscalls/lv2_register.c
+@@ -1704,6 +1704,23 @@ static int spu_deliver_user_event(spu_context* spu, uint32_t value)
+      * the ports cellSpursAttachLv2EventQueue bound; the rest stays as it was. */
+     extern uint32_t spurs_port_queue(uint32_t port);
+     if (!spu->spu_group_id && (code >= 128 || !spurs_port_queue(code & 63))) {
++        if (code == 1) {
++            uint32_t pkt_ls = spu_channel_read(&spu->ch_out_mbox) & 0x3FFFCu;
++            static int n_spu_printf = 0;
++            if (PS3_LOG_FIRST(n_spu_printf, 16)) {
++                const uint8_t* p = spu->ls + pkt_ls;
++                uint32_t w0 = ((uint32_t)p[0]<<24)|((uint32_t)p[1]<<16)|((uint32_t)p[2]<<8)|p[3];
++                uint32_t w1 = ((uint32_t)p[4]<<24)|((uint32_t)p[5]<<16)|((uint32_t)p[6]<<8)|p[7];
++                uint32_t w2 = ((uint32_t)p[8]<<24)|((uint32_t)p[9]<<16)|((uint32_t)p[10]<<8)|p[11];
++                uint32_t w3 = ((uint32_t)p[12]<<24)|((uint32_t)p[13]<<16)|((uint32_t)p[14]<<8)|p[15];
++                uint32_t fmt_ls = w1 & 0x3FFFFu;
++                const char* fmt = (fmt_ls >= 0x3000u && fmt_ls < 0x3F000u) ? (const char*)(spu->ls + fmt_ls) : "?";
++                fprintf(stderr, "[spu-printf] img=%d pkt=0x%05X w=[%08X %08X %08X %08X] fmt=\"%.96s\"\n",
++                        spu->image_id, pkt_ls, w0, w1, w2, w3, fmt);
++            }
++            spu_channel_write(&spu->ch_in_mbox, 1u);
++            return 1;
++        }
+         if (code < 128) { static int n; if (PS3_LOG_FIRST(n, 16))
+             fprintf(stderr, "[spu-evt] SPURS user event on unbound port %u dropped (img=%d value=0x%08X)\n",
+                     code & 63, spu->image_id, value); }
+diff --git a/runtime/syscalls/sys_event.c b/runtime/syscalls/sys_event.c
+index 6f72c1e8..2e34ea08 100644
+--- a/runtime/syscalls/sys_event.c
++++ b/runtime/syscalls/sys_event.c
+@@ -153,8 +153,9 @@ uint32_t sys_event_queue_create_direct(uint64_t key, int32_t size)
+ 
+     evt_table_unlock();
+ 
+-    fprintf(stderr, "[evt] queue_create_direct -> id=%d key=0x%llX size=%d\n",
+-            slot + 1, (unsigned long long)key, size);
++    { static int _n = 0; if (ps3_log_verbose() || PS3_LOG_FIRST(_n, 16))
++        fprintf(stderr, "[evt] queue_create_direct -> id=%d key=0x%llX size=%d\n",
++                slot + 1, (unsigned long long)key, size); }
+     return (uint32_t)(slot + 1);
+ }
+ 
+@@ -188,8 +189,9 @@ int64_t sys_event_queue_create(ppu_context* ctx)
+     q->tail     = 0;
+     q->count    = 0;
+     q->type     = SYS_PPU_QUEUE;
+-    fprintf(stderr, "[evt] queue_create -> id=%d key=0x%llX size=%d\n",
+-            slot + 1, (unsigned long long)key, size);
++    { static int _n = 0; if (ps3_log_verbose() || PS3_LOG_FIRST(_n, 16))
++        fprintf(stderr, "[evt] queue_create -> id=%d key=0x%llX size=%d\n",
++                slot + 1, (unsigned long long)key, size); }
+ 
+     if (attr_addr != 0) {
+         uint8_t* attr_raw = (uint8_t*)vm_to_host(attr_addr);
+@@ -928,8 +930,9 @@ int64_t sys_event_port_create(ppu_context* ctx)
+     p->connected_queue = 0;
+ 
+     uint32_t port_id = (uint32_t)(slot + 1);
+-    fprintf(stderr, "[evt] port_create -> id=%u type=%d name=0x%llX\n",
+-            port_id, (int)port_type, (unsigned long long)name);
++    { static int _n = 0; if (ps3_log_verbose() || PS3_LOG_FIRST(_n, 16))
++        fprintf(stderr, "[evt] port_create -> id=%u type=%d name=0x%llX\n",
++                port_id, (int)port_type, (unsigned long long)name); }
+     if (id_out_addr != 0) {
+         write_be32(id_out_addr, port_id);
+     }
+@@ -967,7 +970,8 @@ int64_t sys_event_port_connect_local(ppu_context* ctx)
+         return (int64_t)(int32_t)CELL_ESRCH;
+     if (queue_id == 0 || queue_id > SYS_EVENT_QUEUE_MAX)
+         return (int64_t)(int32_t)CELL_ESRCH;
+-    fprintf(stderr, "[evt] port_connect(port=%u -> queue=%u)\n", port_id, queue_id);
++    { static int _n = 0; if (ps3_log_verbose() || PS3_LOG_FIRST(_n, 16))
++        fprintf(stderr, "[evt] port_connect(port=%u -> queue=%u)\n", port_id, queue_id); }
+ 
+     evt_table_lock();
+ 
+@@ -994,7 +998,8 @@ int64_t sys_event_port_connect_local(ppu_context* ctx)
+      * takes 1,901 receives and delivers zero events; knowing whether any port
+      * points at it is the difference between "no sender ran" and "no sender
+      * exists". */
+-    fprintf(stderr, "[evt] port_connect_local(port=%u -> q=%u)\n", port_id, queue_id);
++    { static int _n = 0; if (ps3_log_verbose() || PS3_LOG_FIRST(_n, 16))
++        fprintf(stderr, "[evt] port_connect_local(port=%u -> q=%u)\n", port_id, queue_id); }
+     return CELL_OK;
+ }
+ 
+@@ -1142,8 +1147,9 @@ int64_t sys_event_port_send(ppu_context* ctx)
+       g_spu_pending_evt_valid = 0; }
+ 
+     if (event_queue_push(q, &evt) < 0) {
+-        fprintf(stderr, "[evt] port_send(port=%u): queue %d FULL -> EBUSY%c",
+-                port_id, qidx, 10);
++        { static int _n = 0; if (ps3_log_verbose() || PS3_LOG_FIRST(_n, 16))
++            fprintf(stderr, "[evt] port_send(port=%u): queue %d FULL -> EBUSY%c",
++                    port_id, qidx, 10); }
+         return (int64_t)(int32_t)CELL_EBUSY;
+     }
+ 
+diff --git a/runtime/syscalls/sys_memory.c b/runtime/syscalls/sys_memory.c
+index 9d112f64..2d6eb7f4 100644
+--- a/runtime/syscalls/sys_memory.c
++++ b/runtime/syscalls/sys_memory.c
+@@ -109,18 +109,29 @@ static int64_t memory_allocate(uint64_t requested, uint32_t flags, uint32_t cid,
+ {
+     uint32_t alignment = (flags & SYS_MEMORY_PAGE_SIZE_1M) ? 0x100000u : 0x10000u;
+     uint64_t rounded = (requested + alignment - 1u) & ~(uint64_t)(alignment - 1u);
+-    if (!requested || requested > UINT32_MAX || !rounded || rounded > UINT32_MAX)
++    if (!requested || requested > UINT32_MAX || !rounded || rounded > UINT32_MAX) {
++        fprintf(stderr, "[sys_memory] FAIL EINVAL requested=0x%llX flags=0x%X cid=%u\n",
++                (unsigned long long)requested, flags, cid);
+         return (int64_t)(int32_t)CELL_EINVAL;
++    }
+     uint32_t size = (uint32_t)rounded;
+     bump_lock();
+     if (size > SYS_MEM_USER_TOTAL - s_total_allocated) {
+-        bump_unlock(); return (int64_t)(int32_t)CELL_ENOMEM;
++        uint32_t tot = s_total_allocated;
++        bump_unlock();
++        fprintf(stderr, "[sys_memory] FAIL ENOMEM(total) size=0x%X used=0x%X limit=0x%X\n",
++                size, tot, (uint32_t)SYS_MEM_USER_TOTAL);
++        return (int64_t)(int32_t)CELL_ENOMEM;
+     }
+     sys_mem_container_info* ct = NULL;
+     if (cid) {
+         ct = &g_sys_mem_containers[cid - 1];
+         if (size > ct->total_size - ct->used_size) {
+-            bump_unlock(); return (int64_t)(int32_t)CELL_ENOMEM;
++            uint32_t cused = ct->used_size, ctot = ct->total_size;
++            bump_unlock();
++            fprintf(stderr, "[sys_memory] FAIL ENOMEM(ct=%u) size=0x%X used=0x%X tot=0x%X\n",
++                    cid, size, cused, ctot);
++            return (int64_t)(int32_t)CELL_ENOMEM;
+         }
+     }
+     int slot = -1;
+@@ -128,7 +139,10 @@ static int64_t memory_allocate(uint64_t requested, uint32_t flags, uint32_t cid,
+         if (!g_sys_mem_allocs[i].active) { slot = i; break; }
+     uint32_t addr = slot < 0 ? 0 : user_address(size, alignment);
+     if (!addr || vm_commit(addr, size) != CELL_OK) {
+-        bump_unlock(); return (int64_t)(int32_t)CELL_ENOMEM;
++        bump_unlock();
++        fprintf(stderr, "[sys_memory] FAIL ENOMEM(addr) size=0x%X align=0x%X slot=%d addr=0x%08X\n",
++                size, alignment, slot, addr);
++        return (int64_t)(int32_t)CELL_ENOMEM;
+     }
+     memset(vm_to_host(addr), 0, size);
+     sys_mem_alloc_info* a = &g_sys_mem_allocs[slot];
+@@ -138,7 +152,8 @@ static int64_t memory_allocate(uint64_t requested, uint32_t flags, uint32_t cid,
+     if (ct) ct->used_size += size;
+     if (addr + size > g_sys_mem_bump_ptr) g_sys_mem_bump_ptr = addr + size;
+     bump_unlock();
+-    fprintf(stderr, "[sys_memory] allocate(size=0x%X, flags=0x%X, cid=%u) -> 0x%08X\n", size, flags, cid, addr);
++    { static int _n = 0; if (PS3_LOG_FIRST(_n, 32))
++        fprintf(stderr, "[sys_memory] allocate(size=0x%X, flags=0x%X, cid=%u) -> 0x%08X\n", size, flags, cid, addr); }
+     if (addr_out) write_be32(addr_out, addr);
+     return CELL_OK;
+ }
+@@ -578,6 +593,20 @@ int64_t sys_mmapper_map_shared_memory(ppu_context* ctx)
+ /* ---------------------------------------------------------------------------
+  * Registration
+  * -----------------------------------------------------------------------*/
++static int64_t sys_memory_allocate_dbg(ppu_context* ctx)
++{
++    uint64_t sz = LV2_ARG_U64(ctx, 0);
++    int64_t rc = sys_memory_allocate(ctx);
++    if (sz >= 0x10000000ull || rc != CELL_OK) {
++        extern void ppu_dump_guest_stack(ppu_context*, const char*);
++        fprintf(stderr, "[sys-alloc-fail] tid=%llu lr=0x%08X size=0x%llX rc=0x%08X\n",
++                (unsigned long long)ctx->thread_id, (uint32_t)ctx->lr,
++                (unsigned long long)sz, (uint32_t)rc);
++        ppu_dump_guest_stack(ctx, "mem-alloc-fail");
++    }
++    return rc;
++}
++
+ void sys_memory_init(lv2_syscall_table* tbl)
+ {
+     bump_lock();
+@@ -590,7 +619,7 @@ void sys_memory_init(lv2_syscall_table* tbl)
+     memset(s_mapper_reservations, 0, sizeof(s_mapper_reservations));
+     bump_unlock();
+ 
+-    lv2_syscall_register(tbl, SYS_MEMORY_ALLOCATE,             sys_memory_allocate);
++    lv2_syscall_register(tbl, SYS_MEMORY_ALLOCATE,             sys_memory_allocate_dbg);
+     lv2_syscall_register(tbl, SYS_MEMORY_FREE,                 sys_memory_free);
+     lv2_syscall_register(tbl, SYS_MEMORY_GET_USER_MEMORY_SIZE, sys_memory_get_user_memory_size);
+     lv2_syscall_register(tbl, SYS_MEMORY_GET_PAGE_ATTRIBUTE,   sys_memory_get_page_attribute);
+diff --git a/runtime/syscalls/sys_memory.h b/runtime/syscalls/sys_memory.h
+index f394a033..f5b1bc1d 100644
+--- a/runtime/syscalls/sys_memory.h
++++ b/runtime/syscalls/sys_memory.h
+@@ -22,7 +22,7 @@ extern "C" {
+ #define SYS_MEMORY_PAGE_SIZE_64K  0x200
+ 
+ /* Maximum tracked allocations */
+-#define SYS_MEMORY_ALLOC_MAX      1024
++#define SYS_MEMORY_ALLOC_MAX      8192
+ #define SYS_MEMORY_CONTAINER_MAX  16
+ #define SYS_MMAPPER_SHARED_MAX    64
+ 
+diff --git a/runtime/syscalls/sys_timer.c b/runtime/syscalls/sys_timer.c
+index 3a022815..799fc48d 100644
+--- a/runtime/syscalls/sys_timer.c
++++ b/runtime/syscalls/sys_timer.c
+@@ -36,6 +36,57 @@ static void ensure_qpc_init(void)
+     }
+ }
+ 
++#ifndef CREATE_WAITABLE_TIMER_MANUAL_RESET
++#define CREATE_WAITABLE_TIMER_MANUAL_RESET 0x00000001
++#endif
++#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
++#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
++#endif
++
++static DWORD     s_hires_timer_fls = FLS_OUT_OF_INDEXES;
++static INIT_ONCE s_hires_timer_once = INIT_ONCE_STATIC_INIT;
++
++static void WINAPI hires_timer_fls_cleanup(PVOID lpFlsData)
++{
++    HANDLE h = (HANDLE)lpFlsData;
++    if (h && h != INVALID_HANDLE_VALUE) {
++        CloseHandle(h);
++    }
++}
++
++static BOOL CALLBACK hires_timer_fls_init_cb(PINIT_ONCE once, PVOID param, PVOID* ctx)
++{
++    (void)once; (void)param; (void)ctx;
++    s_hires_timer_fls = FlsAlloc(hires_timer_fls_cleanup);
++    return TRUE;
++}
++
++static HANDLE get_thread_hires_timer(int* cached_out)
++{
++    InitOnceExecuteOnce(&s_hires_timer_once, hires_timer_fls_init_cb, NULL, NULL);
++    HANDLE h = (s_hires_timer_fls != FLS_OUT_OF_INDEXES)
++             ? (HANDLE)FlsGetValue(s_hires_timer_fls) : NULL;
++    if (!h) {
++        h = CreateWaitableTimerExW(
++            NULL, NULL,
++            CREATE_WAITABLE_TIMER_MANUAL_RESET | CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
++            TIMER_ALL_ACCESS);
++        if (!h) {
++            h = CreateWaitableTimerW(NULL, TRUE, NULL);
++        }
++        if (h && s_hires_timer_fls != FLS_OUT_OF_INDEXES) {
++            FlsSetValue(s_hires_timer_fls, h);
++            if (cached_out) *cached_out = 1;
++            return h;
++        }
++    } else if (cached_out) {
++        *cached_out = 1;
++        return h;
++    }
++    if (cached_out) *cached_out = 0;
++    return h;
++}
++
+ int64_t lv2_usec_deadline(uint64_t usec)
+ {
+     LARGE_INTEGER now;
+@@ -244,36 +295,78 @@ int64_t sys_timer_usleep(ppu_context* ctx)
+         ppu_log_host_chain("usleep1ms"); } }
+ 
+ #ifdef _WIN32
+-    /* Use high-resolution sleep via waitable timer for better precision */
++    /* Use a cached high-resolution waitable timer + short QPC yield tail so
++     * periodic waits (e.g. 5000 us MultiStream polls) hit target cadence without
++     * OS timer coalescing drift. */
+     if (usec >= 1000) {
+-        HANDLE timer = CreateWaitableTimerW(NULL, TRUE, NULL);
+-        if (timer) {
+-            LARGE_INTEGER due;
+-            due.QuadPart = -((LONGLONG)usec * 10); /* 100ns units, negative = relative */
+-            SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE);
+-            WaitForSingleObject(timer, INFINITE);
+-            CloseHandle(timer);
+-        } else {
+-            Sleep((DWORD)(usec / 1000));
+-        }
+-    } else if (usec > 0) {
+-        /* Sub-millisecond sleep. Sleep()/waitable timers round up to the
+-         * ~0.5-1 ms scheduler quantum, far too coarse for a guest that relies
+-         * on accurate microsecond pacing -- a short usleep() spin waiting on
+-         * another thread to make progress otherwise collapses to a single yield
+-         * and busy-spins at full speed (so the wait is effectively a no-op).
+-         * Busy-wait to a precise QPC deadline, yielding inside the spin
+-         * (SwitchToThread) so a sibling host thread the guest may be waiting on
+-         * still gets the core. Mirrors RPCS3's "Usleep Only" TSC busy-tail. */
+         ensure_qpc_init();
+         LARGE_INTEGER qpc_start, qpc_now;
+         QueryPerformanceCounter(&qpc_start);
+         const int64_t qpc_deadline = qpc_start.QuadPart +
+             (int64_t)((usec * (uint64_t)s_qpc_freq.QuadPart) / 1000000ULL);
+-        do {
+-            SwitchToThread();
+-            QueryPerformanceCounter(&qpc_now);
+-        } while (qpc_now.QuadPart < qpc_deadline);
++        int is_cached = 0;
++        HANDLE timer = get_thread_hires_timer(&is_cached);
++        if (timer) {
++            for (;;) {
++                QueryPerformanceCounter(&qpc_now);
++                int64_t rem_ticks = qpc_deadline - qpc_now.QuadPart;
++                if (rem_ticks <= 0) break;
++                uint64_t rem_usec = (uint64_t)((rem_ticks * 1000000LL) / s_qpc_freq.QuadPart);
++                if (rem_usec <= 450) {
++                    do {
++                        SwitchToThread();
++                        QueryPerformanceCounter(&qpc_now);
++                    } while (qpc_now.QuadPart < qpc_deadline);
++                    break;
++                }
++                uint64_t wait_usec = rem_usec - 400;
++                LARGE_INTEGER due;
++                due.QuadPart = -((LONGLONG)wait_usec * 10);
++                if (!SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE)) {
++                    Sleep((DWORD)(wait_usec / 1000));
++                } else {
++                    WaitForSingleObject(timer, INFINITE);
++                }
++            }
++            if (!is_cached) CloseHandle(timer);
++        } else {
++            Sleep((DWORD)(usec / 1000));
++        }
++    } else if (usec > 0) {
++        /* Rapid-repeat sub-ms poll loops (e.g. appSleep(0) -> usleep(30) tens
++         * of thousands of times per second) burn a full core spinning in QPC +
++         * SwitchToThread(). Keep exact sub-ms QPC spin for isolated delays, and
++         * upgrade sustained repeat polls from the same LR to Sleep(1). */
++        static _Thread_local uint64_t tls_poll_lr = 0;
++        static _Thread_local uint32_t tls_poll_streak = 0;
++        uint64_t cur_lr = ctx ? ctx->lr : 0;
++        if (cur_lr && cur_lr == tls_poll_lr) {
++            if (tls_poll_streak < 64) tls_poll_streak++;
++        } else {
++            tls_poll_lr = cur_lr;
++            tls_poll_streak = 0;
++        }
++        if (tls_poll_streak >= 8) {
++            Sleep(1);
++        } else {
++            /* Sub-millisecond sleep. Sleep()/waitable timers round up to the
++             * ~0.5-1 ms scheduler quantum, far too coarse for a guest that relies
++             * on accurate microsecond pacing -- a short usleep() spin waiting on
++             * another thread to make progress otherwise collapses to a single yield
++             * and busy-spins at full speed (so the wait is effectively a no-op).
++             * Busy-wait to a precise QPC deadline, yielding inside the spin
++             * (SwitchToThread) so a sibling host thread the guest may be waiting on
++             * still gets the core. Mirrors RPCS3's "Usleep Only" TSC busy-tail. */
++            ensure_qpc_init();
++            LARGE_INTEGER qpc_start, qpc_now;
++            QueryPerformanceCounter(&qpc_start);
++            const int64_t qpc_deadline = qpc_start.QuadPart +
++                (int64_t)((usec * (uint64_t)s_qpc_freq.QuadPart) / 1000000ULL);
++            do {
++                SwitchToThread();
++                QueryPerformanceCounter(&qpc_now);
++            } while (qpc_now.QuadPart < qpc_deadline);
++        }
+     }
+ #else
+     if (usec > 0) {
+-- 
+2.52.0.windows.1
+

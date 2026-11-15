@@ -1,0 +1,44 @@
+=== TC-09 REPO & WORKSPACE HYGIENE AUDIT (2026-11-15T05:53:43.635302) ===
+Root workspace .git exists: False
+Residual .bin/.elf/.self inside 03_ASURASWRATH_PORT/spu: 0 -> []
+Residual EBOOT.* inside 03_ASURASWRATH_PORT: 4 -> ['03_ASURASWRATH_PORT\\meta\\EBOOT.functions.json', '03_ASURASWRATH_PORT\\meta\\EBOOT.image.json', '03_ASURASWRATH_PORT\\meta\\EBOOT.imports.json', '03_ASURASWRATH_PORT\\meta\\EBOOT.loader.json']
+Local extracted SPU ELFs inside 03_ASURASWRATH_PORT/meta/spu: 27
+Key-pattern hits in 07_DOCS/08_SCRIPTS/src/jobmods_register.c: 0 -> []
+
+--- git -C 02_REPOS/ps3recomp status --short ---
+M libs/input/cellPad.c
+ M libs/input/tests/test_pad_keyboard.c
+ M libs/misc/cellOvis.c
+ M libs/misc/cellOvis.h
+ M libs/network/cellNetCtl.c
+ M libs/network/sceNpTrophy.c
+ M libs/network/sceNpTrophy.h
+ M libs/spurs/cellSpurs.c
+ M libs/spurs/cellSpurs.h
+ M libs/video/cellGcmSys.c
+ M libs/video/rsx_d3d12_backend.c
+ M libs/video/rsx_d3d12_device.h
+ M libs/video/rsx_fp_decompiler.c
+ M libs/video/rsx_live_draw.c
+ M runtime/ppu/ppu_fs.cpp
+ M runtime/ppu/ppu_loader.cpp
+ M runtime/spu/spu_channels.c
+ M runtime/spu/spu_context.h
+ M runtime/spu/spu_dma.h
+ M runtime/spu/spu_interp.c
+ M runtime/spu/spu_lifted_job.h
+ M runtime/spu/spu_workload.c
+ M runtime/syscalls/lv2_register.c
+ M runtime/syscalls/sys_event.c
+ M runtime/syscalls/sys_memory.c
+ M runtime/syscalls/sys_memory.h
+ M runtime/syscalls/sys_timer.c
+ M scratch/ppu_conformance.cpp
+ M scratch/ppu_conformance_run.bat
+ M tools/build_spu_workloads.py
+ M tools/msvc_env.py
+ M tools/nid_database.py
+ M tools/ppu_lifter.py
+ M tools/test_ppu_jumptables.py
+?? tests/test_spurs_jobchain_end_resume.c
+?? tools/test_spurs_jobchain_end_resume.py

@@ -49,12 +49,17 @@
 05_LOGS/relift_*.log
 
 # Explicitly allow small audit/verification text files in 05_LOGS/
+!05_LOGS/pad_t2_t3_unit_test.log
+!05_LOGS/perf_cmp_before_after.txt
+!05_LOGS/relift_tc08_verify.txt
+!05_LOGS/spurs_job_scan.txt
+!05_LOGS/t025s_particle_quads_audit.txt
+!05_LOGS/task_c_spurs_audit.txt
+!05_LOGS/tc01_no_dump.txt
 !05_LOGS/tc08_relift_proof.txt
+!05_LOGS/tc09_clean_audit.txt
 !05_LOGS/tc09_git_root_verify.txt
 !05_LOGS/test_vertex_fetch_cmp.log
-!05_LOGS/t025s_particle_quads_audit.txt
-!05_LOGS/perf_cmp_before_after.txt
-!05_LOGS/spurs_job_scan.txt
 
 # OS / Editor temporaries
 .vscode/

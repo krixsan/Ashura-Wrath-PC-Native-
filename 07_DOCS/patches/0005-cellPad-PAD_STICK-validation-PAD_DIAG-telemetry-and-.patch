@@ -1,0 +1,471 @@
+From 3d94aabb0aa5045d6291ce2537767c5484b33c2f Mon Sep 17 00:00:00 2001
+From: KRIXSAN <krixsan@local>
+Date: Sun, 15 Nov 2026 12:59:58 +0800
+Subject: [PATCH 5/6] cellPad: PAD_STICK validation, PAD_DIAG telemetry, and
+ keyboard R-stick fallback
+
+---
+ libs/input/cellPad.c                 | 307 +++++++++++++++++++++++++--
+ libs/input/tests/test_pad_keyboard.c |  20 +-
+ 2 files changed, 305 insertions(+), 22 deletions(-)
+
+diff --git a/libs/input/cellPad.c b/libs/input/cellPad.c
+index 5f8a2fa2..6cb31ffc 100644
+--- a/libs/input/cellPad.c
++++ b/libs/input/cellPad.c
+@@ -235,6 +235,12 @@ static int pad_key_down(int key) { return (GetAsyncKeyState(key) & 0x8000) != 0;
+ #define PADKEY_W 'W'
+ #define PADKEY_1 '1'
+ #define PADKEY_2 '2'
++#define PADKEY_3 '3'
++#define PADKEY_4 '4'
++#define PADKEY_I 'I'
++#define PADKEY_J 'J'
++#define PADKEY_K 'K'
++#define PADKEY_L 'L'
+ #define PADKEY_RETURN VK_RETURN
+ #define PADKEY_TAB VK_TAB
+ #elif defined(__APPLE__) && !defined(PS3RECOMP_PAD_KEYBOARD_SDL)
+@@ -271,6 +277,12 @@ static int pad_key_down(int key)
+ #define PADKEY_W 13
+ #define PADKEY_1 18
+ #define PADKEY_2 19
++#define PADKEY_3 20
++#define PADKEY_4 21
++#define PADKEY_I 34
++#define PADKEY_J 38
++#define PADKEY_K 40
++#define PADKEY_L 37
+ #define PADKEY_RETURN 36
+ #define PADKEY_TAB 48
+ #elif PAD_BACKEND_SDL2
+@@ -297,6 +309,12 @@ static int pad_key_down(int key)
+ #define PADKEY_W SDL_SCANCODE_W
+ #define PADKEY_1 SDL_SCANCODE_1
+ #define PADKEY_2 SDL_SCANCODE_2
++#define PADKEY_3 SDL_SCANCODE_3
++#define PADKEY_4 SDL_SCANCODE_4
++#define PADKEY_I SDL_SCANCODE_I
++#define PADKEY_J SDL_SCANCODE_J
++#define PADKEY_K SDL_SCANCODE_K
++#define PADKEY_L SDL_SCANCODE_L
+ #define PADKEY_RETURN SDL_SCANCODE_RETURN
+ #define PADKEY_TAB SDL_SCANCODE_TAB
+ #endif
+@@ -325,6 +343,7 @@ static void pad_poll_keyboard(void)
+         { PADKEY_A,      CELL_PAD_CTRL_SQUARE },  { PADKEY_S,     CELL_PAD_CTRL_TRIANGLE },
+         { PADKEY_Q,      CELL_PAD_CTRL_L1 },      { PADKEY_W,     CELL_PAD_CTRL_R1 },
+         { PADKEY_1,      CELL_PAD_CTRL_L2 },      { PADKEY_2,     CELL_PAD_CTRL_R2 },
++        { PADKEY_3,      CELL_PAD_CTRL_L3 },      { PADKEY_4,     CELL_PAD_CTRL_R3 },
+         { PADKEY_RETURN, CELL_PAD_CTRL_START },   { PADKEY_TAB,   CELL_PAD_CTRL_SELECT },
+     };
+ 
+@@ -332,18 +351,22 @@ static void pad_poll_keyboard(void)
+     for (unsigned i = 0; i < sizeof map / sizeof map[0]; i++)
+         if (pad_key_down(map[i].vk)) btns |= map[i].btn;
+ 
++    const int rs_left = pad_key_down(PADKEY_J), rs_right = pad_key_down(PADKEY_L);
++    const int rs_up   = pad_key_down(PADKEY_I), rs_down  = pad_key_down(PADKEY_K);
++
+     hs->buttons   = btns;
+     hs->connected = 1;
+     hs->analog_lx = (u8)((btns & CELL_PAD_CTRL_LEFT) ? 0 :
+                          (btns & CELL_PAD_CTRL_RIGHT) ? 255 : 128);
+     hs->analog_ly = (u8)((btns & CELL_PAD_CTRL_UP) ? 0 :
+                          (btns & CELL_PAD_CTRL_DOWN) ? 255 : 128);
+-    hs->analog_rx = hs->analog_ry = 128;
++    hs->analog_rx = (u8)(rs_left ? 0 : rs_right ? 255 : 128);
++    hs->analog_ry = (u8)(rs_up   ? 0 : rs_down  ? 255 : 128);
+     hs->trigger_l2 = (u8)((btns & CELL_PAD_CTRL_L2) ? 255 : 0);
+     hs->trigger_r2 = (u8)((btns & CELL_PAD_CTRL_R2) ? 255 : 0);
+ 
+     { static int said = 0;
+-      if (!said && btns) { said = 1;
++      if (!said && (btns || rs_left || rs_right || rs_up || rs_down)) { said = 1;
+           printf("[cellPad] keyboard fallback active on port 0 (no controller)\n");
+           fflush(stdout); } }
+ }
+@@ -861,6 +884,63 @@ void cellPad_poll(void)
+     }
+ }
+ 
++/* PAD_DIAG: runtime pad/analog diagnostics (0=off, 1=changes+heartbeat, all/2=every call).
++ * Logs game-visible CellPadData/CellPadInfo2/SetPortSetting payloads, axis/button
++ * decoding vs. dual-axis float mapping, timestamps, and guest flip counts. */
++static unsigned long long s_diag_t0_ms = 0;
++
++static int pad_diag_level(void)
++{
++    static int s_lvl = -1;
++    if (s_lvl < 0) {
++        const char* e = getenv("PAD_DIAG");
++        if (!e || !*e || !strcmp(e, "0")) {
++            s_lvl = 0;
++        } else if (!strcmp(e, "all") || !strcmp(e, "2")) {
++            s_lvl = 2;
++        } else {
++            s_lvl = 1;
++        }
++        if (s_lvl > 0) {
++            if (!s_diag_t0_ms) s_diag_t0_ms = GetTickCount64();
++            fprintf(stderr,
++                    "[PAD_DIAG] enabled level=%d mapping: D1=btn[2] D2=btn[3] "
++                    "RX=btn[4] RY=btn[5] LX=btn[6] LY=btn[7] (u8 0..255, 128=ctr, Y:0=up/255=down)\n",
++                    s_lvl);
++            fflush(stderr);
++        }
++    }
++    return s_lvl;
++}
++
++static double pad_diag_norm_127(u16 raw)
++{
++    double v = ((double)(int)raw - 127.0) / 127.0;
++    if (v > 1.0) v = 1.0;
++    if (v < -1.0) v = -1.0;
++    return v;
++}
++
++static void pad_diag_fmt_btns(u16 d1, u16 d2, char* buf, size_t cap)
++{
++    static const struct { u8 word; u16 mask; const char* name; } bm[] = {
++        { 1, 0x01, "SEL" }, { 1, 0x02, "L3" }, { 1, 0x04, "R3" }, { 1, 0x08, "START" },
++        { 1, 0x10, "UP" },  { 1, 0x20, "RIGHT" }, { 1, 0x40, "DOWN" }, { 1, 0x80, "LEFT" },
++        { 2, 0x01, "L2" },  { 2, 0x02, "R2" }, { 2, 0x04, "L1" }, { 2, 0x08, "R1" },
++        { 2, 0x10, "TRI" }, { 2, 0x20, "CIRCLE" }, { 2, 0x40, "CROSS" }, { 2, 0x80, "SQUARE" }
++    };
++    size_t pos = 0;
++    buf[0] = '\0';
++    for (unsigned i = 0; i < sizeof bm / sizeof bm[0]; i++) {
++        u16 w = (bm[i].word == 1) ? d1 : d2;
++        if (w & bm[i].mask) {
++            int n = snprintf(buf + pos, cap - pos, "%s%s", pos ? "|" : "", bm[i].name);
++            if (n > 0 && pos + (size_t)n < cap) pos += (size_t)n;
++        }
++    }
++    if (!pos) snprintf(buf, cap, "NONE");
++}
++
+ /* HLE args are GUEST effective addresses; guest structs are BIG-ENDIAN. The
+  * vm_write helpers from ppu_memory.h translate + byte-swap. (cellPad was
+  * written for host pointers and was never actually invoked until its NIDs
+@@ -880,6 +960,7 @@ s32 cellPadGetData(u32 port_no, CellPadData* data_guest)
+     /* Build in a local host struct, then copy to guest memory big-endian. */
+     CellPadData _d; CellPadData* data = &_d;
+     memset(data, 0, sizeof(CellPadData));
++    int diag_src_tag = 0; /* 0=host/kbd, 1=PAD_STICK, 2=PAD_SWEEP */
+ 
+     /* Poll fresh state */
+     pad_poll_backend();
+@@ -1076,26 +1157,104 @@ skip_inject: ;
+       } }
+ 
+     /* Analog sticks */
+-    /* PAD_STICK="lx,ly,rx,ry" (0-255, 128 = centred): hold the analog sticks at
+-     * fixed positions. Rubber Ducky drives its camera from the sticks and never
+-     * moves on its own, so with no host pad the view is frozen wherever it
+-     * started -- which can leave the subject of the demo off-screen or too far
+-     * away to make out. Legit input simulation, same footing as YDKJ_INJECT_PAD. */
++    /* PAD_STICK="lx,ly,rx,ry[,from,until]"
++     *   Fields 1..4 (required): stick axes in [0..255] (128 = center, 0 = left/up, 255 = right/down).
++     *   Fields 5..6 (optional): hold window [from, until) in wall-clock seconds, or guest flips when
++     *     PAD_CLOCK=flips. Note: numbers > 255 in fields 5..6 (e.g. "128,255,128,255,190,260") are
++     *     time bounds (190s..260s), NOT axis values. Out-of-range axis values (< 0 or > 255) or
++     *     malformed specs are rejected loudly to stderr instead of truncating via (unsigned char). */
+     { static int s_st = -1;
+       static unsigned char s_v[4] = {128,128,128,128};
+-      /* Optional 5th/6th fields: the seconds the hold starts and ends, so the menus
+-       * before gameplay are not driven by it (PAD_STICK="128,0,128,128,300,320"). */
+-      static double s_from = 0, s_until = 1e30; static unsigned long long s_t0 = 0;
++      static double s_from = 0.0, s_until = 1e30;
++      static unsigned long long s_t0 = 0;
+       if (!s_t0) s_t0 = GetTickCount64();
+-      if (s_st < 0) { const char* e = getenv("PAD_STICK");
+-        s_st = e ? 1 : 0;
+-        if (e) { int a=128,b=128,c=128,d=128;
+-                 sscanf(e, "%d,%d,%d,%d,%lf,%lf", &a,&b,&c,&d,&s_from,&s_until);
+-                 s_v[0]=(unsigned char)a; s_v[1]=(unsigned char)b;
+-                 s_v[2]=(unsigned char)c; s_v[3]=(unsigned char)d; } }
+-      if (s_st && pad_clock(s_t0) >= s_from && pad_clock(s_t0) < s_until) { hs->analog_lx = s_v[0]; hs->analog_ly = s_v[1];
+-                  hs->analog_rx = s_v[2]; hs->analog_ry = s_v[3];
+-                  hs->connected = 1; }
++      if (s_st < 0) {
++          const char* e = getenv("PAD_STICK");
++          s_st = 0;
++          if (e) {
++              while (*e == ' ' || *e == '\t') e++;
++              if (!*e) {
++                  fprintf(stderr, "[cellPad] ERROR: PAD_STICK is empty; expected \"lx,ly,rx,ry[,from,until]\" (axes 0..255)\n");
++              } else {
++                  const char* p = e;
++                  int axes[4] = {128, 128, 128, 128};
++                  double bounds[2] = {0.0, 1e30};
++                  int ok = 1;
++                  for (int idx = 0; idx < 4; idx++) {
++                      char* endp = NULL;
++                      long val = strtol(p, &endp, 10);
++                      if (endp == p) { ok = 0; break; }
++                      while (*endp == ' ' || *endp == '\t') endp++;
++                      if (idx < 3) {
++                          if (*endp != ',') { ok = 0; break; }
++                          p = endp + 1;
++                      } else {
++                          p = endp;
++                      }
++                      if (val < 0 || val > 255) {
++                          fprintf(stderr,
++                                  "[cellPad] ERROR: PAD_STICK=\"%s\" field %d value %ld out of range [0..255] -- rejecting PAD_STICK\n",
++                                  e, idx + 1, val);
++                          ok = -1;
++                          break;
++                      }
++                      axes[idx] = (int)val;
++                  }
++                  if (ok == 1 && *p != '\0') {
++                      if (*p != ',') {
++                          ok = 0;
++                      } else {
++                          p++;
++                          for (int bidx = 0; bidx < 2; bidx++) {
++                              char* endp = NULL;
++                              double dv = strtod(p, &endp);
++                              if (endp == p || !(dv == dv) || dv < 0.0 || dv > 1e30) { ok = 0; break; }
++                              bounds[bidx] = dv;
++                              while (*endp == ' ' || *endp == '\t') endp++;
++                              if (bidx == 0 && *endp == ',') {
++                                  p = endp + 1;
++                                  continue;
++                              }
++                              if (*endp != '\0') { ok = 0; break; }
++                              p = endp;
++                              break;
++                          }
++                      }
++                  }
++                  if (ok == 1 && bounds[1] <= bounds[0]) {
++                      fprintf(stderr,
++                              "[cellPad] ERROR: PAD_STICK=\"%s\" invalid time window [%.3f, %.3f) (until must be > from) -- rejecting\n",
++                              e, bounds[0], bounds[1]);
++                      ok = -1;
++                  }
++                  if (ok == 0) {
++                      fprintf(stderr,
++                              "[cellPad] ERROR: PAD_STICK=\"%s\" malformed; expected \"lx,ly,rx,ry[,from,until]\" (axes 0..255)\n",
++                              e);
++                  } else if (ok == 1) {
++                      s_v[0] = (unsigned char)axes[0];
++                      s_v[1] = (unsigned char)axes[1];
++                      s_v[2] = (unsigned char)axes[2];
++                      s_v[3] = (unsigned char)axes[3];
++                      s_from = bounds[0];
++                      s_until = bounds[1];
++                      s_st = 1;
++                      const char* clk = getenv("PAD_CLOCK");
++                      fprintf(stderr,
++                              "[cellPad] PAD_STICK armed: L=(%u,%u) R=(%u,%u) window=[%.3f, %.3f) (%s)\n",
++                              s_v[0], s_v[1], s_v[2], s_v[3], s_from, s_until,
++                              (clk && !strcmp(clk, "flips")) ? "flips" : "sec");
++                      fflush(stderr);
++                  }
++              }
++          }
++      }
++      if (s_st && port_no == 0 && pad_clock(s_t0) >= s_from && pad_clock(s_t0) < s_until) {
++          hs->analog_lx = s_v[0]; hs->analog_ly = s_v[1];
++          hs->analog_rx = s_v[2]; hs->analog_ry = s_v[3];
++          hs->connected = 1;
++          diag_src_tag = 1;
++      }
+       /* PAD_SWEEP=<seconds per step>: walk the sticks through a fixed set of
+        * deflections instead of holding one. Guessing a single stick position and
+        * re-running costs ~5 minutes a try; a sweep answers "can input move the
+@@ -1118,6 +1277,7 @@ skip_inject: ;
+             hs->analog_lx = steps[k][0]; hs->analog_ly = steps[k][1];
+             hs->analog_rx = steps[k][2]; hs->analog_ry = steps[k][3];
+             hs->connected = 1;
++            diag_src_tag = 2;
+             { static int lastk = -1;
+               if (k != lastk) { lastk = k;
+                 fprintf(stderr, "[PADSWEEP] step %d: l=(%u,%u) r=(%u,%u)%c", k,
+@@ -1201,6 +1361,84 @@ emit:
+      * attack firing once.
+      *
+      * PAD_ALWAYS_CHANGE=1 restores the old always-a-packet behaviour. */
++    {
++        int dlvl = pad_diag_level();
++        if (dlvl > 0) {
++            unsigned long long now_ms = GetTickCount64();
++            double rel_s = (double)(now_ms - s_diag_t0_ms) / 1000.0;
++            u32 flip = cellGcm_flip_request_count();
++            u16 hdr = data->button[1];
++            u16 d1  = data->button[CELL_PAD_BTN_OFFSET_DIGITAL1];
++            u16 d2  = data->button[CELL_PAD_BTN_OFFSET_DIGITAL2];
++            u16 lx  = data->button[CELL_PAD_BTN_OFFSET_ANALOG_LEFT_X];
++            u16 ly  = data->button[CELL_PAD_BTN_OFFSET_ANALOG_LEFT_Y];
++            u16 rx  = data->button[CELL_PAD_BTN_OFFSET_ANALOG_RIGHT_X];
++            u16 ry  = data->button[CELL_PAD_BTN_OFFSET_ANALOG_RIGHT_Y];
++            int conn = (port_no < PAD_MAX_HOST_PORTS) ? s_host_state[port_no].connected : 0;
++            const char* src = !conn ? "disconn"
++                            : (diag_src_tag == 1) ? "PAD_STICK"
++                            : (diag_src_tag == 2) ? "PAD_SWEEP"
++                            : "host/kbd";
++            unsigned pidx = (port_no < 8) ? port_no : 0;
++            static int s_init[8] = {0};
++            static s32 s_prev_len[8] = {-1,-1,-1,-1,-1,-1,-1,-1};
++            static u16 s_prev_d1[8], s_prev_d2[8], s_prev_lx[8], s_prev_ly[8], s_prev_rx[8], s_prev_ry[8];
++            static int s_prev_src[8] = {-1,-1,-1,-1,-1,-1,-1,-1};
++            static unsigned long long s_last_act_ms[8] = {0}, s_last_zero_ms[8] = {0}, s_zero_cnt[8] = {0};
++            if (dlvl >= 2) {
++                char btns[128];
++                pad_diag_fmt_btns(d1, d2, btns, sizeof btns);
++                fprintf(stderr,
++                        "[PAD_DIAG][GetData] t=%.3fs flip=%u p=%u len=%d hdr=0x%02X src=%s "
++                        "btn=(%02X,%02X:%s) L=(%u,%u)[%.2f,%.2f] R=(%u,%u)[%.2f,%.2f]\n",
++                        rel_s, flip, port_no, data->len, hdr, src, d1, d2, btns,
++                        lx, ly, pad_diag_norm_127(lx), pad_diag_norm_127(ly),
++                        rx, ry, pad_diag_norm_127(rx), pad_diag_norm_127(ry));
++            } else if (data->len > 0) {
++                int changed = !s_init[pidx]
++                    || s_prev_len[pidx] != data->len
++                    || s_prev_d1[pidx] != d1 || s_prev_d2[pidx] != d2
++                    || s_prev_lx[pidx] != lx || s_prev_ly[pidx] != ly
++                    || s_prev_rx[pidx] != rx || s_prev_ry[pidx] != ry
++                    || s_prev_src[pidx] != diag_src_tag;
++                if (changed || (now_ms - s_last_act_ms[pidx] >= 2000ULL)) {
++                    char btns[128];
++                    pad_diag_fmt_btns(d1, d2, btns, sizeof btns);
++                    fprintf(stderr,
++                            "[PAD_DIAG][GetData] t=%.3fs flip=%u p=%u len=%d hdr=0x%02X src=%s "
++                            "btn=(%02X,%02X:%s) L=(%u,%u)[%.2f,%.2f] R=(%u,%u)[%.2f,%.2f] (z_sup=%llu)\n",
++                            rel_s, flip, port_no, data->len, hdr, src, d1, d2, btns,
++                            lx, ly, pad_diag_norm_127(lx), pad_diag_norm_127(ly),
++                            rx, ry, pad_diag_norm_127(rx), pad_diag_norm_127(ry),
++                            s_zero_cnt[pidx]);
++                    fflush(stderr);
++                    s_init[pidx] = 1;
++                    s_prev_len[pidx] = data->len;
++                    s_prev_d1[pidx] = d1; s_prev_d2[pidx] = d2;
++                    s_prev_lx[pidx] = lx; s_prev_ly[pidx] = ly;
++                    s_prev_rx[pidx] = rx; s_prev_ry[pidx] = ry;
++                    s_prev_src[pidx] = diag_src_tag;
++                    s_last_act_ms[pidx] = now_ms;
++                    s_zero_cnt[pidx] = 0;
++                }
++            } else {
++                s_zero_cnt[pidx]++;
++                if (s_last_zero_ms[pidx] == 0 || (now_ms - s_last_zero_ms[pidx] >= 5000ULL)) {
++                    u8 hs_lx = (port_no < PAD_MAX_HOST_PORTS) ? s_host_state[port_no].analog_lx : 128;
++                    u8 hs_ly = (port_no < PAD_MAX_HOST_PORTS) ? s_host_state[port_no].analog_ly : 128;
++                    u8 hs_rx = (port_no < PAD_MAX_HOST_PORTS) ? s_host_state[port_no].analog_rx : 128;
++                    u8 hs_ry = (port_no < PAD_MAX_HOST_PORTS) ? s_host_state[port_no].analog_ry : 128;
++                    fprintf(stderr,
++                            "[PAD_DIAG][GetData] t=%.3fs flip=%u p=%u len=0 (drain x%llu) src=%s "
++                            "hs_conn=%d hs_L=(%u,%u) hs_R=(%u,%u)\n",
++                            rel_s, flip, port_no, s_zero_cnt[pidx], src, conn,
++                            hs_lx, hs_ly, hs_rx, hs_ry);
++                    fflush(stderr);
++                    s_last_zero_ms[pidx] = now_ms;
++                }
++            }
++        }
++    }
+     {
+         unsigned int ea = (unsigned int)(uintptr_t)data_guest;
+         vm_write32((unsigned long long)ea + 0, (unsigned int)data->len);   /* len (s32) */
+@@ -1295,6 +1533,30 @@ s32 cellPadGetInfo2(CellPadInfo2* info_guest)
+     }
+     info->now_connect = connected;
+ 
++    {
++        int dlvl = pad_diag_level();
++        if (dlvl > 0) {
++            static int s_gi_init = 0;
++            static u32 s_gi_now = 0xFFFFFFFFu, s_gi_st0 = 0xFFFFFFFFu, s_gi_set0 = 0xFFFFFFFFu;
++            static unsigned long long s_gi_last_ms = 0;
++            unsigned long long now_ms = GetTickCount64();
++            int chg = !s_gi_init || s_gi_now != connected
++                   || s_gi_st0 != info->port_status[0] || s_gi_set0 != info->port_setting[0];
++            if (dlvl >= 2 || chg || (now_ms - s_gi_last_ms >= 5000ULL)) {
++                fprintf(stderr,
++                        "[PAD_DIAG][GetInfo2] t=%.3fs flip=%u max=%u now=%u p0(status=0x%X setting=0x%X cap=0x%X type=0x%X)\n",
++                        (double)(now_ms - s_diag_t0_ms) / 1000.0,
++                        cellGcm_flip_request_count(), info->max_connect, info->now_connect,
++                        info->port_status[0], info->port_setting[0],
++                        info->device_capability[0], info->device_type[0]);
++                fflush(stderr);
++                s_gi_init = 1; s_gi_now = connected;
++                s_gi_st0 = info->port_status[0]; s_gi_set0 = info->port_setting[0];
++                s_gi_last_ms = now_ms;
++            }
++        }
++    }
++
+     /* copy to guest big-endian (CellPadInfo2 is all u32 fields) */
+     {
+         unsigned int ea = (unsigned int)(uintptr_t)info_guest;
+@@ -1375,6 +1637,13 @@ s32 cellPadSetPortSetting(u32 port_no, u32 port_setting)
+         return CELL_PAD_ERROR_INVALID_PARAMETER;
+ 
+     s_port_setting[port_no] = port_setting;
++    if (pad_diag_level() > 0) {
++        fprintf(stderr,
++                "[PAD_DIAG][SetPortSetting] t=%.3fs flip=%u port=%u setting=0x%X\n",
++                (double)(GetTickCount64() - s_diag_t0_ms) / 1000.0,
++                cellGcm_flip_request_count(), port_no, port_setting);
++        fflush(stderr);
++    }
+     return CELL_OK;
+ }
+ 
+diff --git a/libs/input/tests/test_pad_keyboard.c b/libs/input/tests/test_pad_keyboard.c
+index ca65aa38..7bc34a1d 100644
+--- a/libs/input/tests/test_pad_keyboard.c
++++ b/libs/input/tests/test_pad_keyboard.c
+@@ -1,7 +1,8 @@
+ /* cellPad's keyboard fallback on port 0 (the SDL source): with no controller
+  * plugged in the keyboard plays the pad -- arrows = d-pad, Z/X/A/S = cross/
+- * circle/square/triangle, Q/W = L1/R1, 1/2 = L2/R2, Return = START, Tab =
+- * SELECT, the left stick mirrors the d-pad -- while a window of the process has
++ * circle/square/triangle, Q/W = L1/R1, 1/2 = L2/R2, 3/4 = L3/R3, Return =
++ * START, Tab = SELECT, the left stick mirrors the d-pad, I/J/K/L = right stick --
++ * while a window of the process has
+  * the keyboard focus, and releases everything when it loses it.
+  *
+  *   clang -std=gnu17 -DPS3RECOMP_PAD_KEYBOARD_SDL -I include $(sdl2-config --cflags) \
+@@ -124,6 +125,17 @@ int main(void)
+     assert(data_word(CELL_PAD_BTN_OFFSET_ANALOG_LEFT_X) == 255);
+     assert(data_word(CELL_PAD_BTN_OFFSET_ANALOG_LEFT_Y) == 255);
+ 
++    keys(SDL_SCANCODE_3, 0, 0);
++    assert(D1() == CELL_PAD_CTRL_L3);
++    keys(SDL_SCANCODE_4, 0, 0);
++    assert(D1() == CELL_PAD_CTRL_R3);
++    keys(SDL_SCANCODE_J, SDL_SCANCODE_I, 0);
++    assert(data_word(CELL_PAD_BTN_OFFSET_ANALOG_RIGHT_X) == 0);
++    assert(data_word(CELL_PAD_BTN_OFFSET_ANALOG_RIGHT_Y) == 0);
++    keys(SDL_SCANCODE_L, SDL_SCANCODE_K, 0);
++    assert(data_word(CELL_PAD_BTN_OFFSET_ANALOG_RIGHT_X) == 255);
++    assert(data_word(CELL_PAD_BTN_OFFSET_ANALOG_RIGHT_Y) == 255);
++
+     /* Several keys at once. */
+     keys(SDL_SCANCODE_Z, SDL_SCANCODE_RIGHT, SDL_SCANCODE_RETURN);
+     assert((D2() & CROSS) && (D1() == (RIGHT | START)));
+@@ -131,12 +143,14 @@ int main(void)
+     /* The window loses the keyboard focus with keys still down: everything is
+      * released, or a key held while switching to another program would stay
+      * pressed for good. */
+-    keys(SDL_SCANCODE_Z, SDL_SCANCODE_LEFT, 0);
++    keys(SDL_SCANCODE_Z, SDL_SCANCODE_LEFT, SDL_SCANCODE_I);
+     s_focus = 0;
+     assert(D1() == 0 && D2() == 0);
+     assert(data_word(CELL_PAD_BTN_OFFSET_ANALOG_LEFT_X) == 128);
++    assert(data_word(CELL_PAD_BTN_OFFSET_ANALOG_RIGHT_Y) == 128);
+     s_focus = 1;
+     assert(D2() == CROSS);
++    assert(data_word(CELL_PAD_BTN_OFFSET_ANALOG_RIGHT_Y) == 0);
+ 
+     assert(cellPadEnd() == CELL_OK);
+     printf("test_pad_keyboard: ok\n");
+-- 
+2.52.0.windows.1
+

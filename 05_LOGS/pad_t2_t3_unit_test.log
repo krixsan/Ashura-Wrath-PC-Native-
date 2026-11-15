@@ -1,0 +1,104 @@
+=== CASE reject_gt255 (rc=0) ===
+STDOUT:
+[cellPad] Init(max_connect=4)
+[cellPad] XInput from XInput1_4.dll
+[cellPad] SetPortSetting(port=0, setting=0x4)
+[cellPad] GetData polling begins (port 0)
+RESULT mode=reject len=28 L=(128,128) R=(128,128)
+[cellPad] End()
+STDERR:
+[PAD_DIAG] enabled level=1 mapping: D1=btn[2] D2=btn[3] RX=btn[4] RY=btn[5] LX=btn[6] LY=btn[7] (u8 0..255, 128=ctr, Y:0=up/255=down)
+[PAD_DIAG][SetPortSetting] t=0.000s flip=42 port=0 setting=0x4
+[PAD_DIAG][GetInfo2] t=0.000s flip=42 max=4 now=1 p0(status=0x1 setting=0x4 cap=0x1F type=0x0)
+[cellPad] ERROR: PAD_STICK="128,255,128,260" field 4 value 260 out of range [0..255] -- rejecting PAD_STICK
+[PAD_DIAG][GetData] t=0.046s flip=42 p=0 len=28 hdr=0x7E src=disconn btn=(00,00:NONE) L=(128,128)[0.01,0.01] R=(128,128)[0.01,0.01] (z_sup=0)
+
+=== CASE reject_neg (rc=0) ===
+STDOUT:
+[cellPad] Init(max_connect=4)
+[cellPad] XInput from XInput1_4.dll
+[cellPad] SetPortSetting(port=0, setting=0x4)
+[cellPad] GetData polling begins (port 0)
+RESULT mode=reject len=28 L=(128,128) R=(128,128)
+[cellPad] End()
+STDERR:
+[PAD_DIAG] enabled level=1 mapping: D1=btn[2] D2=btn[3] RX=btn[4] RY=btn[5] LX=btn[6] LY=btn[7] (u8 0..255, 128=ctr, Y:0=up/255=down)
+[PAD_DIAG][SetPortSetting] t=0.000s flip=42 port=0 setting=0x4
+[PAD_DIAG][GetInfo2] t=0.000s flip=42 max=4 now=1 p0(status=0x1 setting=0x4 cap=0x1F type=0x0)
+[cellPad] ERROR: PAD_STICK="128,-1,128,128" field 2 value -1 out of range [0..255] -- rejecting PAD_STICK
+[PAD_DIAG][GetData] t=0.031s flip=42 p=0 len=28 hdr=0x7E src=disconn btn=(00,00:NONE) L=(128,128)[0.01,0.01] R=(128,128)[0.01,0.01] (z_sup=0)
+
+=== CASE reject_empty (rc=0) ===
+STDOUT:
+[cellPad] Init(max_connect=4)
+[cellPad] XInput from XInput1_4.dll
+[cellPad] SetPortSetting(port=0, setting=0x4)
+[cellPad] GetData polling begins (port 0)
+RESULT mode=reject len=28 L=(128,128) R=(128,128)
+[cellPad] End()
+STDERR:
+[PAD_DIAG] enabled level=1 mapping: D1=btn[2] D2=btn[3] RX=btn[4] RY=btn[5] LX=btn[6] LY=btn[7] (u8 0..255, 128=ctr, Y:0=up/255=down)
+[PAD_DIAG][SetPortSetting] t=0.000s flip=42 port=0 setting=0x4
+[PAD_DIAG][GetInfo2] t=0.000s flip=42 max=4 now=1 p0(status=0x1 setting=0x4 cap=0x1F type=0x0)
+[cellPad] ERROR: PAD_STICK is empty; expected "lx,ly,rx,ry[,from,until]" (axes 0..255)
+[PAD_DIAG][GetData] t=0.031s flip=42 p=0 len=28 hdr=0x7E src=disconn btn=(00,00:NONE) L=(128,128)[0.01,0.01] R=(128,128)[0.01,0.01] (z_sup=0)
+
+=== CASE reject_nan (rc=0) ===
+STDOUT:
+[cellPad] Init(max_connect=4)
+[cellPad] XInput from XInput1_4.dll
+[cellPad] SetPortSetting(port=0, setting=0x4)
+[cellPad] GetData polling begins (port 0)
+RESULT mode=reject len=28 L=(128,128) R=(128,128)
+[cellPad] End()
+STDERR:
+[PAD_DIAG] enabled level=1 mapping: D1=btn[2] D2=btn[3] RX=btn[4] RY=btn[5] LX=btn[6] LY=btn[7] (u8 0..255, 128=ctr, Y:0=up/255=down)
+[PAD_DIAG][SetPortSetting] t=0.000s flip=42 port=0 setting=0x4
+[PAD_DIAG][GetInfo2] t=0.000s flip=42 max=4 now=1 p0(status=0x1 setting=0x4 cap=0x1F type=0x0)
+[cellPad] ERROR: PAD_STICK="abc,128,128,128" malformed; expected "lx,ly,rx,ry[,from,until]" (axes 0..255)
+[PAD_DIAG][GetData] t=0.031s flip=42 p=0 len=28 hdr=0x7E src=disconn btn=(00,00:NONE) L=(128,128)[0.01,0.01] R=(128,128)[0.01,0.01] (z_sup=0)
+
+=== CASE reject_win (rc=0) ===
+STDOUT:
+[cellPad] Init(max_connect=4)
+[cellPad] XInput from XInput1_4.dll
+[cellPad] SetPortSetting(port=0, setting=0x4)
+[cellPad] GetData polling begins (port 0)
+RESULT mode=reject len=28 L=(128,128) R=(128,128)
+[cellPad] End()
+STDERR:
+[PAD_DIAG] enabled level=1 mapping: D1=btn[2] D2=btn[3] RX=btn[4] RY=btn[5] LX=btn[6] LY=btn[7] (u8 0..255, 128=ctr, Y:0=up/255=down)
+[PAD_DIAG][SetPortSetting] t=0.000s flip=42 port=0 setting=0x4
+[PAD_DIAG][GetInfo2] t=0.000s flip=42 max=4 now=1 p0(status=0x1 setting=0x4 cap=0x1F type=0x0)
+[cellPad] ERROR: PAD_STICK="128,255,128,255,260,190" invalid time window [260.000, 190.000) (until must be > from) -- rejecting
+[PAD_DIAG][GetData] t=0.031s flip=42 p=0 len=28 hdr=0x7E src=disconn btn=(00,00:NONE) L=(128,128)[0.01,0.01] R=(128,128)[0.01,0.01] (z_sup=0)
+
+=== CASE accept_qte (rc=0) ===
+STDOUT:
+[cellPad] Init(max_connect=4)
+[cellPad] XInput from XInput1_4.dll
+[cellPad] SetPortSetting(port=0, setting=0x4)
+[cellPad] GetData polling begins (port 0)
+RESULT mode=valid len=28 L=(128,255) R=(128,255)
+[cellPad] End()
+STDERR:
+[PAD_DIAG] enabled level=1 mapping: D1=btn[2] D2=btn[3] RX=btn[4] RY=btn[5] LX=btn[6] LY=btn[7] (u8 0..255, 128=ctr, Y:0=up/255=down)
+[PAD_DIAG][SetPortSetting] t=0.000s flip=42 port=0 setting=0x4
+[PAD_DIAG][GetInfo2] t=0.000s flip=42 max=4 now=1 p0(status=0x1 setting=0x4 cap=0x1F type=0x0)
+[cellPad] PAD_STICK armed: L=(128,255) R=(128,255) window=[0.000, 10.000) (sec)
+[PAD_DIAG][GetData] t=0.032s flip=42 p=0 len=28 hdr=0x7E src=PAD_STICK btn=(00,00:NONE) L=(128,255)[0.01,1.00] R=(128,255)[0.01,1.00] (z_sup=0)
+
+=== CASE accept_timewin_gt255 (rc=0) ===
+STDOUT:
+[cellPad] Init(max_connect=4)
+[cellPad] XInput from XInput1_4.dll
+[cellPad] SetPortSetting(port=0, setting=0x4)
+[cellPad] GetData polling begins (port 0)
+RESULT mode=valid len=28 L=(128,255) R=(128,255)
+[cellPad] End()
+STDERR:
+[PAD_DIAG] enabled level=1 mapping: D1=btn[2] D2=btn[3] RX=btn[4] RY=btn[5] LX=btn[6] LY=btn[7] (u8 0..255, 128=ctr, Y:0=up/255=down)
+[PAD_DIAG][SetPortSetting] t=0.000s flip=42 port=0 setting=0x4
+[PAD_DIAG][GetInfo2] t=0.000s flip=42 max=4 now=1 p0(status=0x1 setting=0x4 cap=0x1F type=0x0)
+[cellPad] PAD_STICK armed: L=(128,255) R=(128,255) window=[0.000, 260.000) (sec)
+[PAD_DIAG][GetData] t=0.032s flip=42 p=0 len=28 hdr=0x7E src=PAD_STICK btn=(00,00:NONE) L=(128,255)[0.01,1.00] R=(128,255)[0.01,1.00] (z_sup=0)
