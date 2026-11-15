@@ -1,0 +1,64 @@
+# Strictly ignore game dumps, keys, saves, packages, and raw binaries (Aturan 5/6)
+00_GAME_DUMP/
+01_KEYS/
+*BCSAVEDATA*
+*.elf
+*.ELF
+*.self
+*.SELF
+*.sprx
+*.SPRX
+*.pkg
+*.PKG
+*.iso
+*.ISO
+*.bin
+*.BIN
+*.rap
+*.RAP
+*.edat
+*.EDAT
+*.rif
+*.RIF
+*.klic
+*.KLIC
+
+# Ignore external repositories, build directories, and external tools
+02_REPOS/
+04_BUILD/
+06_TOOLS/
+
+# Ignore bulk auto-generated PPU/SPU lift directories (re-generated via relift.ps1),
+# while keeping CMakeLists.txt, jobmods_register.c, and embedded SPURS spujob_* sources
+03_ASURASWRATH_PORT/recompiled/
+03_ASURASWRATH_PORT/spu/spu_00*/
+03_ASURASWRATH_PORT/meta/
+03_ASURASWRATH_PORT/*.bak*
+03_ASURASWRATH_PORT/spu/*.bak*
+
+# Ignore large logs, recordings, screenshots, and temporary scripts in 05_LOGS/
+05_LOGS/*/
+05_LOGS/*.mp4
+05_LOGS/*.png
+05_LOGS/*.jpg
+05_LOGS/*.csv
+05_LOGS/*.py
+05_LOGS/ep1_*.log
+05_LOGS/run_*.log
+05_LOGS/build_*.log
+05_LOGS/relift_*.log
+
+# Explicitly allow small audit/verification text files in 05_LOGS/
+!05_LOGS/tc08_relift_proof.txt
+!05_LOGS/tc09_git_root_verify.txt
+!05_LOGS/test_vertex_fetch_cmp.log
+!05_LOGS/t025s_particle_quads_audit.txt
+!05_LOGS/perf_cmp_before_after.txt
+!05_LOGS/spurs_job_scan.txt
+
+# OS / Editor temporaries
+.vscode/
+*.bak
+*.tmp
+.DS_Store
+Thumbs.db
