@@ -1,7 +1,7 @@
 From 3d94aabb0aa5045d6291ce2537767c5484b33c2f Mon Sep 17 00:00:00 2001
 From: KRIXSAN <krixsan@local>
 Date: Sun, 15 Nov 2026 12:59:58 +0800
-Subject: [PATCH 5/6] cellPad: PAD_STICK validation, PAD_DIAG telemetry, and
+Subject: [PATCH 5/7] cellPad: PAD_STICK validation, PAD_DIAG telemetry, and
  keyboard R-stick fallback
 
 ---

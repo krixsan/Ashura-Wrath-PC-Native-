@@ -1,7 +1,7 @@
 From 3a88706950f6a51434c4817dcd502f86539d38ad Mon Sep 17 00:00:00 2001
 From: KRIXSAN <krixsan@local>
 Date: Sun, 15 Nov 2026 12:59:58 +0800
-Subject: [PATCH 1/6] rsx_vertex_fetch: return early after decoding CMP (type
+Subject: [PATCH 1/7] rsx_vertex_fetch: return early after decoding CMP (type
  6) attributes
 
 CMP (CELL_GCM_VERTEX_CMP, type 6) packs three signed 11-11-10 components into one 32-bit word per vertex regardless of whether the guest sets size=1 or size=3 (e.g. Unreal Engine 3 a0:T6x1s32@L). Previously case 6 fell through to the post-switch scalar component expansion from PR #597 (b3150f3c), which zeroed out[1] and out[2] whenever size == 1. Return early from case 6 to match rsx_live_draw.c and rsx_vertex_compact.c.

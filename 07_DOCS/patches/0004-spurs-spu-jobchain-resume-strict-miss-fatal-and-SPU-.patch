@@ -1,7 +1,7 @@
 From 4e7b38a6da36dea9a79160e3e815840e513915c8 Mon Sep 17 00:00:00 2001
 From: KRIXSAN <krixsan@local>
 Date: Sun, 15 Nov 2026 12:59:58 +0800
-Subject: [PATCH 4/6] spurs/spu: jobchain resume, strict miss-fatal, and SPU
+Subject: [PATCH 4/7] spurs/spu: jobchain resume, strict miss-fatal, and SPU
  DMA PUT census audit
 
 ---

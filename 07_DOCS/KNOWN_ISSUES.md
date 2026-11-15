@@ -12,7 +12,7 @@ Daftar hal yang belum diuji penuh, log non-fatal yang diketahui aman, serta bata
    - **Bukti terkini**: Tabel perbandingan manual disiapkan di `07_DOCS\TC07_RPCS3_COMPARISON.md` beserta tangkapan lokal (`1280x720`) dari `05_LOGS\e2e_tier2_20261115_061452\`, `05_LOGS\e2e_tc05_20261115_062608\`, serta sensus draw sebelum/sesudah perbaikan `CMP` pada `05_LOGS\draw_census_20261115_110049\` dan `05_LOGS\draw_census_20261115_111217\`. Audit shader `05_LOGS\t025s_particle_quads_audit.txt` membuktikan 21 draw ber-`pos0=(0,0,0)` (`i=0/6/30/36/288`) pada `t025s` adalah normal (20 draw `QUADS` partikel local-space `bUseLocalSpace=TRUE` + 1 draw UI `TRIS`). Yang masih memerlukan golden RPCS3 `BLUS30721` (`Aturan 7`): memastikan apakah pada momen orbit combat (`t025s`, `t040s`) maupun re-entry (`t070s`) keberadaan/posisi Asura dan kapal sesuai dengan frame RPCS3. Catatan visual minor lokal sebelumnya: pada `05_LOGS\e2e_tc05_20261115_062608\stage_02_load_dialog.png` tampak artefak blend putih minor di tepi bawah belakang dialog overlay `Load successful.`.
 3. **Progres QTE `L↓ + R↓` pada Atmospheric Re-entry Episode 1 (Baru)**
    - **Gejala**: Pada `05_LOGS\e2e_tier2_20261115_061452`, dari `ep1_t070s.png` hingga `ep1_t310s.png` / `stage_09_ep1_end.png` (~260 detik sisa durasi Episode 1), QTE prompt `(L)↓ (R)↓` tetap bertahan dan belum berlanjut meski script mengirim `PAD_STICK="128,255,128,255,190,260"`. Rendering, animasi efek api, audio, dan watchdog (`draw_arrays #314000`) tetap berjalan tanpa freeze atau crash.
-   - **Dampak / Tindak lanjut**: Menunggu uji manual dengan gamepad fisik (`08_SCRIPTS\test_qte_ep1.ps1 -Mode manual`, `Aturan 7`) untuk membedakan isu timing/sekuens injeksi vs pembacaan `cellPad` di game.
+   - **Dampak / Tindak lanjut**: Menunggu uji manual dengan gamepad XInput atau keyboard (`08_SCRIPTS\test_qte_ep1.ps1 -Mode manual`, `Aturan 7`, lihat tabel mapping lengkap di `07_DOCS\INPUT_MAPPING.md` & ringkasan di §7) untuk membedakan isu timing/sekuens injeksi vs pembacaan `cellPad` di game.
 4. **Update v1.02 PKG & Struktur Git Root (`TC-09`)**
    - **Update v1.02**: Berkas `00_GAME_DUMP\extracted\Asura's Wrath [BLUS30721] (Update v1.02).pkg` (`34731232` bytes, `UP0102-BLUS30721_00-PATCH02000000000`) belum diekstrak/di-merge; `EBOOT.ELF` yang di-lift saat ini adalah Base `APP_VER=01.00` (field mastering `VERSION=01.02`). `00_GAME_DUMP\extracted\game\BLUS30721\` hanya berisi berkas `.TFC` + `ICON0.PNG` (tanpa `PARAM.SFO`/`EBOOT`).
    - **Git Root (`TC-09` — Teratasi 2026-11-15)**: Workspace root `"C:\PORTINGAN GAME\PS3\Ashura W\"` kini telah diinisialisasi (`git init`) dengan `.gitignore` ketat, commit bertahap, serta tag `tier1` dan `tier2-partial` (`05_LOGS\tc09_git_root_verify.txt`). Riwayat sebelumnya: ~~Workspace root `C:\PORTINGAN GAME\PS3\Ashura W\` belum diinisialisasi sebagai repositori Git (`Root workspace .git exists: False`; `.git` hanya ada di `02_REPOS\ps3recomp`), sehingga git tag `tier1` dan `tier2` di root belum dibuat.~~
@@ -68,5 +68,26 @@ Daftar hal yang belum diuji penuh, log non-fatal yang diketahui aman, serta bata
   - Ke-4 sudut quad diekspansi di dalam Vertex Shader dari `ATTR8` (`v[8].yx - vp_c[452].xx`, offset sudut `[-0.5, +0.5]`), dikalikan `ATTR5` (`v[5].xy`, ukuran partikel 2D non-nol seperti `(37.5, 37.5)` atau `(80, 80)`), dirotasi oleh `sin/cos(v[1].x)` (`ATTR1`) sepanjang sumbu kamera `vp_c[464]` (`CameraRight`) & `vp_c[465]` (`CameraUp`), ditambahkan ke `r[0]`, lalu diproyeksikan oleh `vp_c[0..3]` (`ViewProjection`).
 - **Mengapa `i=0/6/30/36/288` muncul pada kolom `fi` CSV untuk draw `ix=0`**:
   - Seluruh 83 draw `QUADS` di `t025s` adalah non-indexed (`ix=0`, `d3d12_draw_arrays` -> `upload_quads_vp` -> `DrawInstanced(dr->vertex_count, 1, ...)`). Di `rsx_d3d12_backend.c:8165`, `d3d12_draw_arrays` menyetel `dr->indexed = 0` tanpa men-zero-kan `dr->index_count`, sehingga kolom CSV `fi` (`e->final_indices`) menyalin nilai `dr->index_count` sisa frame sebelumnya pada slot tersebut (`0, 6, 30, 36, 288`). Eksekusi GPU D3D12 tidak terpengaruh karena cabang `if (dr->indexed)` tidak diambil ketika `dr->indexed == 0`. Tidak ada kode yang diubah.
+
+## 7. Ringkasan Audit Input (`cellPad`) & Mapping Kontrol (`07_DOCS\INPUT_MAPPING.md`)
+
+- **Dokumentasi lengkap**: `07_DOCS\INPUT_MAPPING.md`.
+- **Konfirmasi Backend (Apakah SDL3 digunakan?)**:
+  - **TIDAK.** Build Windows `04_BUILD\AsurasWrathRecomp.exe` **tidak memakai SDL3 maupun SDL2** (`PAD_BACKEND_XINPUT=1`, `PAD_BACKEND_SDL2=0` di `02_REPOS\ps3recomp\libs\input\cellPad.c:41-50`; `02_REPOS\ps3recomp\CMakeLists.txt:139-170` hanya mencari `SDL2` pada host non-Windows).
+  - Build ini memakai **3 sumber input**:
+    1. **Windows XInput** (`XInput1_4.dll` / `XInput1_3.dll` / `XInput9_1_0.dll` dari `System32`, `cellPad.c:395-513`) untuk gamepad fisik port `0..3` (controller Xbox atau DualShock/DualSense dengan wrapper XInput seperti DS4Windows/Steam Input).
+    2. **Fallback Keyboard Win32 `GetAsyncKeyState`** (`cellPad.c:216-245, 322-372, 921`) pada **Port 0**, hanya aktif jika **tidak ada** gamepad XInput di slot 0 dan **jendela game `Asura's Wrath` sedang fokus (foreground)**.
+    3. **Injeksi env var** (`PAD_FILE`, `PAD_SCRIPT`, `PAD_STICK`, `PAD_AUTOPRESS`, `PAD_SWEEP` di `cellPad.c:1059-1387`).
+- **Ringkasan Mapping Keyboard (Bukan WASD!)**:
+  - **D-Pad + Stik Kiri (`Left Stick`)**: `Panah Atas/Bawah/Kiri/Kanan` (`Up/Down/Left/Right Arrow`) — menekan tombol D-Pad sekaligus menggerakkan `LX/LY` ke `0` atau `255`.
+  - **Stik Kanan (`Right Stick`)**: `I` (Atas, `RY=0`), `K` (Bawah, `RY=255`), `J` (Kiri, `RX=0`), `L` (Kanan, `RX=255`).
+  - **Face Buttons**: `Z` = $\times$ (`CROSS`), `X` = $\bigcirc$ (`CIRCLE`), `A` = $\square$ (`SQUARE`), `S` = $\triangle$ (`TRIANGLE` — **bukan** stik bawah!).
+  - **Shoulder/Trigger/Stick/System**: `Q` = `L1`, `W` = `R1`, `1` = `L2`, `2` = `R2`, `3` = `L3`, `4` = `R3`, `Enter` = `START`, `Tab` = `SELECT`.
+  - **QTE `(L)↓ + (R)↓`**:
+    - **Gamepad XInput**: Tarik **Left Stick Bawah + Right Stick Bawah** bersamaan (`L=(128,255) R=(128,255)`, `btn=NONE`).
+    - **Keyboard PC**: Tahan **`Down Arrow` (Panah Bawah) + `K`** bersamaan (`L=(128,255) R=(128,255)`, `btn=DOWN`).
+- **Log Fisik `PAD_DIAG` (`cellPad.c:839-902`)**:
+  - Menambahkan `[PAD_DIAG][PHYS]` (`ev=PRESS|CHANGE|HOLD|RELEASE`), `[PAD_DIAG][BACKEND]`, dan `[PAD_DIAG][FOCUS]` tanpa mengubah perilaku input, terverifikasi di `05_LOGS\pad_t2_t3_unit_test.log` (`CASE phys_kbd_and_xinput_diag (rc=0)`).
+
 
 

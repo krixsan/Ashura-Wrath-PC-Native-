@@ -1,7 +1,7 @@
 From 7c022238ff89ccfe9a6ce18362e92c2e12ec6840 Mon Sep 17 00:00:00 2001
 From: KRIXSAN <krixsan@local>
 Date: Sun, 15 Nov 2026 12:59:58 +0800
-Subject: [PATCH 2/6] tools: portable_msvc fallback, SPU extra_funcs fix, and
+Subject: [PATCH 2/7] tools: portable_msvc fallback, SPU extra_funcs fix, and
  PPU lifter adjustments
 
 ---

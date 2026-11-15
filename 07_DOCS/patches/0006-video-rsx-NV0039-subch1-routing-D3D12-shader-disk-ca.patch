@@ -1,7 +1,7 @@
 From d78a0f7c73f736a8c01193522cbb03952dce353c Mon Sep 17 00:00:00 2001
 From: KRIXSAN <krixsan@local>
 Date: Sun, 15 Nov 2026 12:59:59 +0800
-Subject: [PATCH 6/6] video/rsx: NV0039 subch1 routing, D3D12 shader disk
+Subject: [PATCH 6/7] video/rsx: NV0039 subch1 routing, D3D12 shader disk
  cache, and draw census audit
 
 ---

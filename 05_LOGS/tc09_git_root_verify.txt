@@ -3,11 +3,12 @@ Root repo .git exists: True
 Root git status --short: ''
 Root tags: tier1, tier2-partial
 Root log --oneline --decorate:
-4cce469 (HEAD -> master, tag: tier2-partial) docs(tc09): add git root verification log (tc09_git_root_verify.txt)
+dcf6277 (HEAD -> master, tag: tier2-partial) input(cellPad): add INPUT_MAPPING.md, PAD_DIAG physical press logging, and update docs
+e25f14b docs(tc09): add git root verification log (tc09_git_root_verify.txt)
 a86b188 port(tier2-partial): Episode 1 harness, CMP vertex fetch fix, ps3recomp patch series, and docs v1.1
 db9fb94 (tag: tier1) port(tier1): initial port scaffolding, SPURS job2 lift pipeline, and Tier 0-1 verification
 
-Root tracked files count: 55
+Root tracked files count: 57
 Root forbidden files hits (dump/keys/elf/pkg/bin/save/mp4/png/csv): 0
 
 === 02_REPOS\ps3recomp (branch asuras-wrath-local, base de4f0903) ===
@@ -15,6 +16,7 @@ ps3recomp branch: asuras-wrath-local
 ps3recomp git status --short: ''
 ps3recomp forbidden files hits: 0
 ps3recomp log de4f0903..HEAD:
+adb8a2ec cellPad: add PAD_DIAG physical button/stick/focus logging ([PAD_DIAG][PHYS])
 d78a0f7c video/rsx: NV0039 subch1 routing, D3D12 shader disk cache, and draw census audit
 3d94aabb cellPad: PAD_STICK validation, PAD_DIAG telemetry, and keyboard R-stick fallback
 4e7b38a6 spurs/spu: jobchain resume, strict miss-fatal, and SPU DMA PUT census audit
@@ -57,6 +59,7 @@ d78a0f7c video/rsx: NV0039 subch1 routing, D3D12 shader disk cache, and draw cen
 05_LOGS/tc09_clean_audit.txt
 05_LOGS/tc09_git_root_verify.txt
 05_LOGS/test_vertex_fetch_cmp.log
+07_DOCS/INPUT_MAPPING.md
 07_DOCS/KNOWN_ISSUES.md
 07_DOCS/PATCH_MAP.md
 07_DOCS/T1_CELLPAD_QTE_AUDIT.md
@@ -68,6 +71,7 @@ d78a0f7c video/rsx: NV0039 subch1 routing, D3D12 shader disk cache, and draw cen
 07_DOCS/patches/0004-spurs-spu-jobchain-resume-strict-miss-fatal-and-SPU-.patch
 07_DOCS/patches/0005-cellPad-PAD_STICK-validation-PAD_DIAG-telemetry-and-.patch
 07_DOCS/patches/0006-video-rsx-NV0039-subch1-routing-D3D12-shader-disk-ca.patch
+07_DOCS/patches/0007-cellPad-add-PAD_DIAG-physical-button-stick-focus-log.patch
 07_DOCS/upstream/0001-rsx_vertex_fetch-return-early-for-CMP-attributes.patch
 07_DOCS/upstream/PR_DRAFT_rsx_vertex_fetch_cmp.md
 08_SCRIPTS/build.py

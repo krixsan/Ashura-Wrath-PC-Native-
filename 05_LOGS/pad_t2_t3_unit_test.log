@@ -102,3 +102,29 @@ STDERR:
 [PAD_DIAG][GetInfo2] t=0.000s flip=42 max=4 now=1 p0(status=0x1 setting=0x4 cap=0x1F type=0x0)
 [cellPad] PAD_STICK armed: L=(128,255) R=(128,255) window=[0.000, 260.000) (sec)
 [PAD_DIAG][GetData] t=0.032s flip=42 p=0 len=28 hdr=0x7E src=PAD_STICK btn=(00,00:NONE) L=(128,255)[0.01,1.00] R=(128,255)[0.01,1.00] (z_sup=0)
+
+
+
+=== CASE phys_kbd_and_xinput_diag (rc=0) ===
+STDOUT:
+[cellPad] Init(max_connect=4)
+[cellPad] SetPortSetting(port=0, setting=0x4)
+[cellPad] GetData polling begins (port 0)
+[cellPad] keyboard fallback active on port 0 (no controller)
+STEP1_KBD_QTE: d1=0x40 L=(128,255) R=(128,255)
+STEP3_XINPUT_QTE: d1=0x00 L=(128,255) R=(128,255)
+[cellPad] End()
+STDERR:
+[PAD_DIAG] enabled level=1 mapping: D1=btn[2] D2=btn[3] RX=btn[4] RY=btn[5] LX=btn[6] LY=btn[7] (u8 0..255, 128=ctr, Y:0=up/255=down)
+[PAD_DIAG][FOCUS] t=0.000s flip=100 window_focused=1 (keyboard fallback requires window_focused=1)
+[PAD_DIAG][BACKEND] t=0.000s flip=100 p=0 active_source=Keyboard
+[PAD_DIAG][SetPortSetting] t=0.000s flip=100 port=0 setting=0x4
+[PAD_DIAG][PHYS] t=0.016s flip=100 p=0 src=Keyboard ev=PRESS btn=(40,00:DOWN) L=(128,255)[0.01,1.00] R=(128,255)[0.01,1.00] trig=(0,0)
+[PAD_DIAG][GetData] t=0.016s flip=100 p=0 len=28 hdr=0x7E src=kbd btn=(40,00:DOWN) L=(128,255)[0.01,1.00] R=(128,255)[0.01,1.00] (z_sup=0)
+[PAD_DIAG][PHYS] t=0.032s flip=100 p=0 src=Keyboard ev=RELEASE btn=(00,00:NONE) L=(128,128)[0.01,0.01] R=(128,128)[0.01,0.01] trig=(0,0)
+[PAD_DIAG][GetData] t=0.032s flip=100 p=0 len=28 hdr=0x7E src=kbd btn=(00,00:NONE) L=(128,128)[0.01,0.01] R=(128,128)[0.01,0.01] (z_sup=0)
+[PAD_DIAG][BACKEND] t=0.047s flip=100 p=0 active_source=XInput
+[PAD_DIAG][PHYS] t=0.047s flip=100 p=0 src=XInput ev=PRESS btn=(00,00:NONE) L=(128,255)[0.01,1.00] R=(128,255)[0.01,1.00] trig=(0,0)
+[PAD_DIAG][GetData] t=0.047s flip=100 p=0 len=28 hdr=0x7E src=xinput btn=(00,00:NONE) L=(128,255)[0.01,1.00] R=(128,255)[0.01,1.00] (z_sup=0)
+[PAD_DIAG][PHYS] t=0.063s flip=100 p=0 src=XInput ev=RELEASE btn=(00,00:NONE) L=(128,128)[0.01,0.01] R=(128,128)[0.01,0.01] trig=(0,0)
+[PAD_DIAG][GetData] t=0.063s flip=100 p=0 len=28 hdr=0x7E src=xinput btn=(00,00:NONE) L=(128,128)[0.01,0.01] R=(128,128)[0.01,0.01] (z_sup=0)

@@ -43,3 +43,4 @@ Unreal Engine 3 encodes `TangentX` (`ATTR1`) and `TangentZ` (`ATTR2`) on all ske
 Added `libs/video/tests/test_vertex_fetch_cmp.c` (patterned after `test_vertex_fetch_plan.c` and `test_vertex_current_color.c`) covering:
 1. Direct `rsx_decode_vertex_attrib()` decoding of `type=6, size=4` (`+X,+Y,+Z` = `0x1FF7FE00`, `-X,-Y,-Z` = `0x20080100`, and zero = `0x00000000`), verifying `out[0..2]` are preserved and not overwritten by the `size=4` loop.
 2. End-to-end `rsx_build_vertex_fetch_plan()` + `rsx_execute_vertex_fetch_plan()` with interleaved `FLOAT3` position (`ATTR0`) + `CMP` `T6x4` `TangentX`/`TangentZ` (`ATTR1`/`ATTR2`, stride 20), verifying non-zero decoded tangents and `out[3] == 1.0f`.
+

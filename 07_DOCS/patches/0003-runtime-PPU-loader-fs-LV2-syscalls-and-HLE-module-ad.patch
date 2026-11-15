@@ -1,7 +1,7 @@
 From 0a15f541dff62815be1946c4db6b4b9b3aab487e Mon Sep 17 00:00:00 2001
 From: KRIXSAN <krixsan@local>
 Date: Sun, 15 Nov 2026 12:59:58 +0800
-Subject: [PATCH 3/6] runtime: PPU loader/fs, LV2 syscalls, and HLE module
+Subject: [PATCH 3/7] runtime: PPU loader/fs, LV2 syscalls, and HLE module
  adjustments for Asura's Wrath
 
 ---

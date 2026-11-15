@@ -237,9 +237,11 @@ try {
     if ($Mode -eq "manual") {
         Write-Host ""
         Write-Host "========================================================================" -ForegroundColor Green
-        Write-Host " [MANUAL GAMEPAD READY] Focus window & test real XInput controller NOW! " -ForegroundColor Green
-        Write-Host " Pull LEFT STICK DOWN + RIGHT STICK DOWN at L-down + R-down QTE.       " -ForegroundColor Green
-        Write-Host " Close window when done, or wait up to ${Ep1Sec}s timeout.               " -ForegroundColor Green
+        Write-Host " [MANUAL INPUT READY] Klik/Fokuskan window 'Asura's Wrath' SEKARANG!   " -ForegroundColor Green
+        Write-Host " - Gamepad XInput : Tarik LEFT STICK BAWAH + RIGHT STICK BAWAH          " -ForegroundColor Green
+        Write-Host " - Keyboard PC    : Tahan PANAH BAWAH (Down Arrow) + K bersamaan        " -ForegroundColor Green
+        Write-Host "   (Tombol lain   : Z=Cross, X=Circle, A=Square, S=Triangle, Enter=Start)" -ForegroundColor Green
+        Write-Host " Tutup window setelah selesai, atau tunggu timeout ${Ep1Sec}s.           " -ForegroundColor Green
         Write-Host "========================================================================" -ForegroundColor Green
     }
 
@@ -300,6 +302,9 @@ $diagZeroDrain = Count-Matches $stdErrTxt "\[PAD_DIAG\]\[GetData\].*len=0"
 $diagActData   = $diagGetData - $diagZeroDrain
 $diagGetInfo2  = Count-Matches $stdErrTxt "\[PAD_DIAG\]\[GetInfo2\]"
 $diagSetPort   = Count-Matches $stdErrTxt "\[PAD_DIAG\]\[SetPortSetting\]"
+$diagPhys      = Count-Matches $stdErrTxt "\[PAD_DIAG\]\[PHYS\]"
+$diagBackend   = Count-Matches $stdErrTxt "\[PAD_DIAG\]\[BACKEND\]"
+$diagFocus     = Count-Matches $stdErrTxt "\[PAD_DIAG\]\[FOCUS\]"
 $padStickArm   = @([regex]::Matches($stdErrTxt, "\[cellPad\] PAD_STICK.*") | ForEach-Object { $_.Value })
 $diagSample    = @([regex]::Matches($stdErrTxt, "\[PAD_DIAG\].*") | ForEach-Object { $_.Value })
 
@@ -310,11 +315,12 @@ $summary = @(
     "ExitCode        : $exitCode",
     "FailureReason   : $(if ($failureReason) { $failureReason } else { 'NONE' })",
     "Ep1ElapsedSec   : $([math]::Round($ep1Elapsed, 2))",
-    "PadStick        : $(if ($Mode -eq 'inject') { $PadStick } else { '(disabled - real gamepad)' })",
+    "PadStick        : $(if ($Mode -eq 'inject') { $PadStick } else { '(disabled - real gamepad/keyboard)' })",
     "PadClock        : $PadClock",
     "PadAlwaysChange : $([bool]$PadAlwaysChange)",
     "DispatchMiss    : $missCount",
     "FatalOrAbort    : $abortCount",
+    "DiagPhysEvents  : $diagPhys (BackendChanges: $diagBackend, FocusChanges: $diagFocus)",
     "DiagGetInfo2    : $diagGetInfo2",
     "DiagSetPort     : $diagSetPort",
     "DiagGetDataTotal: $diagGetData (active len>0: $diagActData, drain len=0: $diagZeroDrain)",
