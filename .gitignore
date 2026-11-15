@@ -52,8 +52,11 @@
 !05_LOGS/pad_t2_t3_unit_test.log
 !05_LOGS/perf_cmp_before_after.txt
 !05_LOGS/relift_tc08_verify.txt
+!05_LOGS/save_backup_latest.txt
 !05_LOGS/spurs_job_scan.txt
 !05_LOGS/t025s_particle_quads_audit.txt
+!05_LOGS/t1_tier2_pass_audit.txt
+!05_LOGS/t2_runtime_lib_audit.txt
 !05_LOGS/task_c_spurs_audit.txt
 !05_LOGS/tc01_no_dump.txt
 !05_LOGS/tc08_relift_proof.txt

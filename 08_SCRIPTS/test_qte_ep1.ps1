@@ -29,7 +29,7 @@ foreach ($v in @("PAD_STICK", "PAD_SWEEP", "PAD_SCRIPT", "PAD_AUTOPRESS", "PAD_A
 }
 
 if ($Ep1Sec -le 0) {
-    $Ep1Sec = if ($Mode -eq "manual") { 240 } else { 130 }
+    $Ep1Sec = if ($Mode -eq "manual") { 900 } else { 130 }
 }
 
 if (-not $OutDir) {
@@ -241,26 +241,151 @@ try {
         Write-Host " - Gamepad XInput : Tarik LEFT STICK BAWAH + RIGHT STICK BAWAH          " -ForegroundColor Green
         Write-Host " - Keyboard PC    : Tahan PANAH BAWAH (Down Arrow) + K bersamaan        " -ForegroundColor Green
         Write-Host "   (Tombol lain   : Z=Cross, X=Circle, A=Square, S=Triangle, Enter=Start)" -ForegroundColor Green
-        Write-Host " Tutup window setelah selesai, atau tunggu timeout ${Ep1Sec}s.           " -ForegroundColor Green
+        Write-Host " Tutup window setelah selesai (layar Episode Clear Save),               " -ForegroundColor Green
+        Write-Host " atau biarkan berjalan hingga batas waktu ${Ep1Sec}s.                    " -ForegroundColor Green
         Write-Host "========================================================================" -ForegroundColor Green
     }
 
+    # Baseline counts right at the start of Stage 6
+    $initOut = Read-LogText $outLog
+    $initErr = Read-LogText $errLog
+    $initCombined = $initOut + "`n" + $initErr
+
+    $stage6StartFlip = 0
+    $initFlips = [regex]::Matches($initErr, "\[PAD_DIAG\][^\r\n]*?t=([0-9.]+)s\s+flip=([0-9]+)")
+    if ($initFlips.Count -gt 0) {
+        $stage6StartFlip = [int]$initFlips[$initFlips.Count - 1].Groups[2].Value
+    }
+    $prevTickFlip = $stage6StartFlip
+    $prevTickWallSec = 0.0
+    $lastObservedFlip = $stage6StartFlip
+    $lastFlipAdvanceWallSec = 0.0
+    $lastHangAlertWallSec = -999.0
+
+    $seenBikList = New-Object System.Collections.Generic.List[string]
+    foreach ($m in [regex]::Matches($initCombined, "\[fs\] open '([^']*\.BIK)'")) {
+        $bName = Split-Path -Leaf ($m.Groups[1].Value -replace '/', '\')
+        if (-not $seenBikList.Contains($bName)) { $seenBikList.Add($bName) }
+    }
+    $seenXxxList = New-Object System.Collections.Generic.List[string]
+    foreach ($m in [regex]::Matches($initCombined, "\[fs\] open '([^']*\.XXX)'")) {
+        $xName = Split-Path -Leaf ($m.Groups[1].Value -replace '/', '\')
+        if (-not $seenXxxList.Contains($xName)) { $seenXxxList.Add($xName) }
+    }
+    $baselineSaveCount = Count-Matches $initCombined "SAVE complete for 'BLUS30721-BCSAVEDATA'"
+    $epClearSaveNotified = 0
+
+    $telemetryRows = @()
+    $p0Hangs = @()
+    $segmentRecords = @()
+    $curSegName = if ($seenXxxList.Count -gt 0) { $seenXxxList[$seenXxxList.Count - 1] } else { "BC-S000_L01_PDE_01.XXX" }
+    $curSegStartSec = 0.0
+    $curSegStartFlip = $stage6StartFlip
+
     $ep1Sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $nextSnapSec = 10
+    $nextSnapSec = if ($Mode -eq "manual") { 15 } else { 10 }
+
     while ($ep1Sw.Elapsed.TotalSeconds -lt $Ep1Sec -and -not $p.HasExited) {
-        $el = [int]$ep1Sw.Elapsed.TotalSeconds
+        $elWall = $ep1Sw.Elapsed.TotalSeconds
+        $el = [int]$elWall
+
+        $txt = Read-LogText $outLog
+        $err = Read-LogText $errLog
+        $combined = $txt + "`n" + $err
+
+        # Track latest flip counter for hang detection (>30s without flip advancing = P0)
+        $flMatches = [regex]::Matches($err, "\[PAD_DIAG\][^\r\n]*?t=([0-9.]+)s\s+flip=([0-9]+)")
+        $curFlip = $lastObservedFlip
+        if ($flMatches.Count -gt 0) {
+            $curFlip = [int]$flMatches[$flMatches.Count - 1].Groups[2].Value
+        }
+        if ($curFlip -gt $lastObservedFlip) {
+            $lastObservedFlip = $curFlip
+            $lastFlipAdvanceWallSec = $elWall
+        }
+        $stallSec = $elWall - $lastFlipAdvanceWallSec
+        if ($stallSec -gt 30.0 -and ($elWall - $lastHangAlertWallSec) -ge 30.0) {
+            $lastHangAlertWallSec = $elWall
+            $hangPng = ("p0_hang_t{0:D3}s.png" -f $el)
+            if (Capture-Png (Join-Path $OutDir $hangPng)) { $capturedScreenshots += $hangPng }
+            $hangMsg = ("P0 HANG DETECTED at t={0:F1}s: flip counter stalled at flip={1} for {2:F1}s (>30s) in segment '{3}'" -f $elWall, $curFlip, $stallSec, $curSegName)
+            Write-Stage "[P0 HANG] $hangMsg"
+            $p0Hangs += $hangMsg
+        }
+
         if ($el -ge $nextSnapSec) {
-            $name = ("qte_t{0:D3}s.png" -f $nextSnapSec)
+            $snapSec = $nextSnapSec
+            $name = ("qte_t{0:D3}s.png" -f $snapSec)
             if (Capture-Png (Join-Path $OutDir $name)) { $capturedScreenshots += $name }
+
+            $dtTick = [math]::Max(0.001, ($elWall - $prevTickWallSec))
+            $dFlip  = $curFlip - $prevTickFlip
+            $intFps = [math]::Round(($dFlip / $dtTick), 2)
+            $cumFps = [math]::Round((($curFlip - $stage6StartFlip) / [math]::Max(0.001, $elWall)), 2)
+
+            $tickMiss   = Count-Matches $combined "dispatch of an SPU program with no lifted image|dispatch MISS"
+            $tickSpuErr = Count-Matches $combined "\[spu_workload\]\s*ERROR"
+            $tickAbort  = Count-Matches $combined "FATAL|ABORT|Unhandled exception"
+            $tickSave   = Count-Matches $combined "SAVE complete for 'BLUS30721-BCSAVEDATA'"
+
+            $newBiks = @()
+            foreach ($m in [regex]::Matches($combined, "\[fs\] open '([^']*\.BIK)'")) {
+                $bName = Split-Path -Leaf ($m.Groups[1].Value -replace '/', '\')
+                if (-not $seenBikList.Contains($bName)) {
+                    $seenBikList.Add($bName)
+                    $newBiks += $bName
+                }
+            }
+            $newXxxs = @()
+            foreach ($m in [regex]::Matches($combined, "\[fs\] open '([^']*\.XXX)'")) {
+                $xName = Split-Path -Leaf ($m.Groups[1].Value -replace '/', '\')
+                if (-not $seenXxxList.Contains($xName)) {
+                    $seenXxxList.Add($xName)
+                    $newXxxs += $xName
+                }
+            }
+
+            if ($newXxxs.Count -gt 0 -or $newBiks.Count -gt 0) {
+                $segDur = [math]::Max(0.001, ($elWall - $curSegStartSec))
+                $segFlips = $curFlip - $curSegStartFlip
+                $segFps = [math]::Round(($segFlips / $segDur), 2)
+                $segmentRecords += ("{0,-32} | {1,6:F1}s .. {2,6:F1}s | flips={3,5} (+{4,4}) | avgFPS={5,6:F2}" -f $curSegName, $curSegStartSec, $elWall, $curFlip, $segFlips, $segFps)
+                $curSegName = if ($newXxxs.Count -gt 0) { $newXxxs[$newXxxs.Count - 1] } else { $newBiks[$newBiks.Count - 1] }
+                $curSegStartSec = $elWall
+                $curSegStartFlip = $curFlip
+            }
+
+            $bikStr = if ($newBiks.Count -gt 0) { $newBiks -join "," } else { "-" }
+            $xxxStr = if ($newXxxs.Count -gt 0) { $newXxxs -join "," } else { "-" }
+            $hangTag = if ($stallSec -gt 30.0) { "P0_HANG" } else { "OK" }
+
+            $telemLine = ("[TELEM t={0:D3}s] png={1} flip={2} (+{3}) FPS={4:F2} (cum={5:F2}) stall={6:F1}s[{7}] miss={8} spuErr={9} abort={10} saves={11} newBIK=[{12}] newXXX=[{13}]" -f `
+                $snapSec, $name, $curFlip, $dFlip, $intFps, $cumFps, $stallSec, $hangTag, $tickMiss, $tickSpuErr, $tickAbort, $tickSave, $bikStr, $xxxStr)
+            Write-Stage $telemLine
+            $telemetryRows += $telemLine
+
+            if ($tickSave -gt ($baselineSaveCount + $epClearSaveNotified)) {
+                $epClearSaveNotified = $tickSave - $baselineSaveCount
+                Write-Stage ("[EPISODE CLEAR SAVE] New cellSaveData SAVE complete detected during Stage 6 (total saves={0}, post-Stage4={1})!" -f $tickSave, $epClearSaveNotified)
+            }
+
+            $prevTickFlip = $curFlip
+            $prevTickWallSec = $elWall
             $nextSnapSec += 15
         }
-        $err = Read-LogText $errLog
+
         if ($err -match "ERROR: dispatch of an SPU program") {
             throw "Episode 1 SPU dispatch MISS!"
         }
         Start-Sleep -Milliseconds 500
     }
     $ep1Elapsed = $ep1Sw.Elapsed.TotalSeconds
+    if ($ep1Elapsed -gt $curSegStartSec) {
+        $segDur = [math]::Max(0.001, ($ep1Elapsed - $curSegStartSec))
+        $segFlips = $lastObservedFlip - $curSegStartFlip
+        $segFps = [math]::Round(($segFlips / $segDur), 2)
+        $segmentRecords += ("{0,-32} | {1,6:F1}s .. {2,6:F1}s | flips={3,5} (+{4,4}) | avgFPS={5,6:F2}" -f $curSegName, $curSegStartSec, $ep1Elapsed, $lastObservedFlip, $segFlips, $segFps)
+    }
     if (-not $p.HasExited) {
         if (Capture-Png (Join-Path $OutDir "stage_08_ep1_end.png")) { $capturedScreenshots += "stage_08_ep1_end.png" }
         Write-Stage ("Episode 1 QTE window elapsed ({0:F1}s), sending WM_CLOSE..." -f $ep1Elapsed)
@@ -294,9 +419,13 @@ try {
 $exitCode = if ($p -and $p.HasExited -and $null -ne $p.ExitCode) { [int]$p.ExitCode } else { -1 }
 $stdOutTxt = Read-LogText $outLog
 $stdErrTxt = Read-LogText $errLog
+$allLogTxt = $stdOutTxt + "`n" + $stdErrTxt
 
-$missCount     = Count-Matches ($stdOutTxt + "`n" + $stdErrTxt) "dispatch of an SPU program with no lifted image|dispatch MISS"
-$abortCount    = Count-Matches ($stdOutTxt + "`n" + $stdErrTxt) "FATAL|ABORT|Unhandled exception"
+$missCount     = Count-Matches $allLogTxt "dispatch of an SPU program with no lifted image|dispatch MISS"
+$spuErrCount   = Count-Matches $allLogTxt "\[spu_workload\]\s*ERROR"
+$abortCount    = Count-Matches $allLogTxt "FATAL|ABORT|Unhandled exception"
+$totalSaveCnt  = Count-Matches $allLogTxt "SAVE complete for 'BLUS30721-BCSAVEDATA'"
+$epClearSaves  = [math]::Max(0, ($totalSaveCnt - 1))
 $diagGetData   = Count-Matches $stdErrTxt "\[PAD_DIAG\]\[GetData\]"
 $diagZeroDrain = Count-Matches $stdErrTxt "\[PAD_DIAG\]\[GetData\].*len=0"
 $diagActData   = $diagGetData - $diagZeroDrain
@@ -307,24 +436,78 @@ $diagBackend   = Count-Matches $stdErrTxt "\[PAD_DIAG\]\[BACKEND\]"
 $diagFocus     = Count-Matches $stdErrTxt "\[PAD_DIAG\]\[FOCUS\]"
 $padStickArm   = @([regex]::Matches($stdErrTxt, "\[cellPad\] PAD_STICK.*") | ForEach-Object { $_.Value })
 $diagSample    = @([regex]::Matches($stdErrTxt, "\[PAD_DIAG\].*") | ForEach-Object { $_.Value })
+$spursJobs     = @([regex]::Matches($allLogTxt, "\[cellSpurs\] JobChainAttributeSetName\([^\r\n]*|\[spu_workload\][^\r\n]*") | ForEach-Object { $_.Value } | Select-Object -Unique)
+$shaderVidErrs = @([regex]::Matches($allLogTxt, "rejects=[1-9][0-9]*|\[D3D12\][^\r\n]*ERROR|\[bink\][^\r\n]*ERROR") | ForEach-Object { $_.Value })
+
+# Read-only post-run check of BLUS30721-BCSAVEDATA\PAYLOAD
+$savePayloadPath = Join-Path $env:PORT_ROOT "04_BUILD\gamedata\dev_hdd0\home\00000001\savedata\BLUS30721-BCSAVEDATA\PAYLOAD"
+$saveCheckLines = @()
+if (Test-Path $savePayloadPath) {
+    $svItem = Get-Item $savePayloadPath
+    $svHash = (Get-FileHash $savePayloadPath -Algorithm SHA256).Hash
+    $svBytes = [System.IO.File]::ReadAllBytes($savePayloadPath)
+    $svAscii = [System.Text.Encoding]::ASCII.GetString($svBytes)
+    $saveCheckLines += ("PAYLOAD Path : {0}" -f $savePayloadPath)
+    $saveCheckLines += ("PAYLOAD Size : {0} bytes | mtime={1} | sha256={2}" -f $svItem.Length, $svItem.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss"), $svHash)
+    $svMatches = [regex]::Matches($svAscii, "ClearFlg\0")
+    for ($si = 0; $si -lt [math]::Min(6, $svMatches.Count); $si++) {
+        $pos = $svMatches[$si].Index
+        if ($pos -ge 0x0B500) { break }
+        $idOff = $pos - 8
+        $valOff = $pos + 33
+        $idVal = ([int]$svBytes[$idOff] -shl 24) -bor ([int]$svBytes[$idOff+1] -shl 16) -bor ([int]$svBytes[$idOff+2] -shl 8) -bor [int]$svBytes[$idOff+3]
+        $flgVal = ([int]$svBytes[$valOff] -shl 24) -bor ([int]$svBytes[$valOff+1] -shl 16) -bor ([int]$svBytes[$valOff+2] -shl 8) -bor [int]$svBytes[$valOff+3]
+        $saveCheckLines += ("  StoryClearFlgs[{0}] (Id={1,3}) : ClearFlg={2} (offset=0x{3:X5})" -f $si, $idVal, $flgVal, $valOff)
+    }
+} else {
+    $saveCheckLines += "PAYLOAD not found at $savePayloadPath"
+}
+
+$stage6AvgFps = if ($ep1Elapsed -gt 0 -and $lastObservedFlip -ge $stage6StartFlip) {
+    [math]::Round((($lastObservedFlip - $stage6StartFlip) / $ep1Elapsed), 2)
+} else { 0.0 }
 
 $summary = @(
     "=== ASURA'S WRATH QTE EP1 DIAGNOSTIC AUDIT ===",
-    "Mode            : $Mode",
-    "OutDir          : $OutDir",
-    "ExitCode        : $exitCode",
-    "FailureReason   : $(if ($failureReason) { $failureReason } else { 'NONE' })",
-    "Ep1ElapsedSec   : $([math]::Round($ep1Elapsed, 2))",
-    "PadStick        : $(if ($Mode -eq 'inject') { $PadStick } else { '(disabled - real gamepad/keyboard)' })",
-    "PadClock        : $PadClock",
-    "PadAlwaysChange : $([bool]$PadAlwaysChange)",
-    "DispatchMiss    : $missCount",
-    "FatalOrAbort    : $abortCount",
-    "DiagPhysEvents  : $diagPhys (BackendChanges: $diagBackend, FocusChanges: $diagFocus)",
-    "DiagGetInfo2    : $diagGetInfo2",
-    "DiagSetPort     : $diagSetPort",
-    "DiagGetDataTotal: $diagGetData (active len>0: $diagActData, drain len=0: $diagZeroDrain)",
-    "Screenshots     : $($capturedScreenshots -join ', ')",
+    "Mode                 : $Mode",
+    "OutDir               : $OutDir",
+    "ExitCode             : $exitCode",
+    "FailureReason        : $(if ($failureReason) { $failureReason } else { 'NONE' })",
+    "Ep1ElapsedSec        : $([math]::Round($ep1Elapsed, 2)) (target=${Ep1Sec}s)",
+    "Stage6Flips          : $stage6StartFlip -> $lastObservedFlip (+$($lastObservedFlip - $stage6StartFlip), AvgFPS=$stage6AvgFps)",
+    "PadStick             : $(if ($Mode -eq 'inject') { $PadStick } else { '(disabled - real gamepad/keyboard)' })",
+    "PadClock             : $PadClock",
+    "PadAlwaysChange      : $([bool]$PadAlwaysChange)",
+    "DispatchMiss         : $missCount",
+    "SpuWorkloadError     : $spuErrCount",
+    "FatalOrAbort         : $abortCount",
+    "P0HangCount          : $($p0Hangs.Count)",
+    "SaveCompleteTotal    : $totalSaveCnt (EpisodeClearSavesPostStage4: $epClearSaves)",
+    "DiagPhysEvents       : $diagPhys (BackendChanges: $diagBackend, FocusChanges: $diagFocus)",
+    "DiagGetInfo2         : $diagGetInfo2",
+    "DiagSetPort          : $diagSetPort",
+    "DiagGetDataTotal     : $diagGetData (active len>0: $diagActData, drain len=0: $diagZeroDrain)",
+    "OpenedBikFiles       : $($seenBikList -join ', ')",
+    "StreamedXxxPackages  : $($seenXxxList -join ', ')",
+    "Screenshots          : $($capturedScreenshots -join ', ')",
+    "",
+    "--- P0 HANG CHECK (>30s flip stall) ---"
+) + $(if ($p0Hangs.Count -gt 0) { $p0Hangs } else { @("NONE (0 stalls > 30s)") }) + @(
+    "",
+    "--- PER-15s TELEMETRY LOG ---"
+) + $telemetryRows + @(
+    "",
+    "--- FPS PER SEGMENT (SUB-LEVEL .XXX / .BIK) ---"
+) + $segmentRecords + @(
+    "",
+    "--- POST-RUN SAVE STATUS (READ-ONLY) ---"
+) + $saveCheckLines + @(
+    "",
+    "--- SPURS / SPU WORKLOAD SUMMARY ---"
+) + $spursJobs + @(
+    "",
+    "--- SHADER / VIDEO ERRORS ---"
+) + $(if ($shaderVidErrs.Count -gt 0) { $shaderVidErrs } else { @("NONE") }) + @(
     "",
     "--- PAD_STICK status ---"
 ) + $padStickArm + @(
@@ -336,6 +519,6 @@ $summary -join "`r`n" | Set-Content -Path $auditTxt -Encoding UTF8
 Write-Host ""
 Get-Content $auditTxt
 
-if ($failureReason -or $exitCode -ne 0 -or $missCount -gt 0 -or $abortCount -gt 0) { exit 1 }
+if ($failureReason -or $exitCode -ne 0 -or $missCount -gt 0 -or $spuErrCount -gt 0 -or $abortCount -gt 0 -or $p0Hangs.Count -gt 0) { exit 1 }
 exit 0
 

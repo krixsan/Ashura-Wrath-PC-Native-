@@ -1,0 +1,43 @@
+﻿=== ASURA'S WRATH (BLUS30721) SAVE BACKUP MANIFEST (T1) ===
+Timestamp      : 2026-11-15 19:36:57 +08:00
+Source Dir     : C:\PORTINGAN GAME\PS3\Ashura W\04_BUILD\gamedata\dev_hdd0\home\00000001\savedata\BLUS30721-BCSAVEDATA
+Backup Dir     : C:\PORTINGAN GAME\PS3\Ashura W\05_LOGS\save_backups\20261115_193657\BLUS30721-BCSAVEDATA
+Original Intact: TRUE (read-only copy; source files untouched)
+
+--- FILE SHA-256 HASHES (SOURCE vs BACKUP) ---
+ICON0.PNG    size= 116700 bytes  mtime=2026-11-14 22:32:03  sha256=B5C634A043E2A303EF59580C4B341827B012DD7ECC26E97978A4429DCB32F1D0 [MATCH]
+PARAM.PFD    size=      8 bytes  mtime=2026-11-14 22:32:03  sha256=F09693EB113FE630BAC50B5E99386A704BA4A363133E55F9735D322DDB8E78EF [MATCH]
+PARAM.SFO    size=   2736 bytes  mtime=2026-11-14 23:51:46  sha256=D6353E7470046EEB8737301C40CEBCC69A2D33AD8313E1521D0D6115CD82B786 [MATCH]
+PAYLOAD      size=  81920 bytes  mtime=2026-11-14 23:51:46  sha256=44AC98A52B176E9207ABAF44A61EF88C090E3EA4ED7B7F4B9B00EB67AA656D29 [MATCH]
+
+--- STORYCLEARFLGS BASELINE (READ-ONLY FROM PAYLOAD) ---
+Entry[ 0] offset=0x00060 : Id=  0  ClearFlg=2 (val_offset=0x00081)
+Entry[ 1] offset=0x0067C : Id= 10  ClearFlg=0 (val_offset=0x0069D)
+Entry[ 2] offset=0x00C98 : Id= 20  ClearFlg=0 (val_offset=0x00CB9)
+Entry[ 3] offset=0x012B4 : Id= 30  ClearFlg=0 (val_offset=0x012D5)
+Entry[ 4] offset=0x018D0 : Id= 40  ClearFlg=0 (val_offset=0x018F1)
+Entry[ 5] offset=0x01EEC : Id= 50  ClearFlg=0 (val_offset=0x01F0D)
+Entry[ 6] offset=0x02508 : Id= 60  ClearFlg=0 (val_offset=0x02529)
+Entry[ 7] offset=0x02B24 : Id= 70  ClearFlg=0 (val_offset=0x02B45)
+Entry[ 8] offset=0x03140 : Id= 80  ClearFlg=0 (val_offset=0x03161)
+Entry[ 9] offset=0x0375C : Id=100  ClearFlg=0 (val_offset=0x0377D)
+Entry[10] offset=0x03D78 : Id=110  ClearFlg=0 (val_offset=0x03D99)
+Entry[11] offset=0x04394 : Id=120  ClearFlg=0 (val_offset=0x043B5)
+Entry[12] offset=0x049B0 : Id=130  ClearFlg=0 (val_offset=0x049D1)
+Entry[13] offset=0x04FCC : Id=140  ClearFlg=0 (val_offset=0x04FED)
+Entry[14] offset=0x055E8 : Id=150  ClearFlg=0 (val_offset=0x05609)
+Entry[15] offset=0x05C04 : Id=160  ClearFlg=0 (val_offset=0x05C25)
+Entry[16] offset=0x06220 : Id=170  ClearFlg=0 (val_offset=0x06241)
+Entry[17] offset=0x0683C : Id=180  ClearFlg=0 (val_offset=0x0685D)
+Entry[18] offset=0x06E58 : Id=190  ClearFlg=0 (val_offset=0x06E79)
+Entry[19] offset=0x07474 : Id=200  ClearFlg=0 (val_offset=0x07495)
+Entry[20] offset=0x07A90 : Id=205  ClearFlg=0 (val_offset=0x07AB1)
+Entry[21] offset=0x080AC : Id=210  ClearFlg=0 (val_offset=0x080CD)
+Entry[22] offset=0x086C8 : Id=220  ClearFlg=0 (val_offset=0x086E9)
+Entry[23] offset=0x08CE4 : Id=230  ClearFlg=0 (val_offset=0x08D05)
+Entry[24] offset=0x09300 : Id=250  ClearFlg=0 (val_offset=0x09321)
+Entry[25] offset=0x0991C : Id=260  ClearFlg=0 (val_offset=0x0993D)
+Entry[26] offset=0x09F38 : Id=270  ClearFlg=0 (val_offset=0x09F59)
+Entry[27] offset=0x0A554 : Id=280  ClearFlg=0 (val_offset=0x0A575)
+Entry[28] offset=0x0AB70 : Id=290  ClearFlg=0 (val_offset=0x0AB91)
+Entry[29] offset=0x0B18C : Id=300  ClearFlg=0 (val_offset=0x0B1AD)
