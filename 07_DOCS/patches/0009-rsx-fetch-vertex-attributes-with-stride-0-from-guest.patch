@@ -1,0 +1,150 @@
+From 656da1f190a817983e54d017d7891955bff2650c Mon Sep 17 00:00:00 2001
+From: KRIXSAN <krixsan@local>
+Date: Mon, 16 Nov 2026 00:17:42 +0800
+Subject: [PATCH] rsx: fetch vertex attributes with stride == 0 from guest
+ memory
+
+---
+ libs/video/rsx_d3d12_backend.c               | 13 ++-
+ libs/video/rsx_vertex_fetch.c                |  2 +-
+ libs/video/tests/test_vertex_fetch_stride0.c | 91 ++++++++++++++++++++
+ 3 files changed, 102 insertions(+), 4 deletions(-)
+ create mode 100644 libs/video/tests/test_vertex_fetch_stride0.c
+
+diff --git a/libs/video/rsx_d3d12_backend.c b/libs/video/rsx_d3d12_backend.c
+index 1ad23014..44bfaeb6 100644
+--- a/libs/video/rsx_d3d12_backend.c
++++ b/libs/video/rsx_d3d12_backend.c
+@@ -2021,9 +2021,16 @@ static int vp_get_vs(const rsx_state* st)
+                     vstart_slot, vlen, ni, 10);
+         return -1;
+     }
+-    if (getenv("VP_DUMP")) { static int _d=0; if (PS3_LOG_FIRST(_d, 4)) {
+-        FILE* f = fopen("vp2_dump.hlsl", _d==1 ? "w" : "a");
+-        if (f) { fprintf(f, "/* per-draw VS hash pending, %d instrs */%s%s", ni, hlsl, "\n"); fclose(f); } } }
++    if (getenv("VP_DUMP")) {
++        char sdump[128];
++        snprintf(sdump, sizeof(sdump), "05_LOGS/shader_dumps/vs_%02d_0x%08X.hlsl", s_d3d.vp_vs_n, hash);
++        FILE* f = fopen(sdump, "w");
++        if (f) {
++            fprintf(f, "/* VS #%d, hash 0x%08X, %d instrs, vstart=%u bbits=0x%X */\n%s\n",
++                    s_d3d.vp_vs_n, hash, ni, vstart_slot, bbits, hlsl);
++            fclose(f);
++        }
++    }
+     /* RSX_DBG_VP=<hex tex0 offset>: write the vertex program belonging to the draws
+      * that bind that texture. vp2_dump.hlsl holds whichever four programs were
+      * compiled first, which need not include the one under investigation -- and
+diff --git a/libs/video/rsx_vertex_fetch.c b/libs/video/rsx_vertex_fetch.c
+index fc0d24c9..f002af0b 100644
+--- a/libs/video/rsx_vertex_fetch.c
++++ b/libs/video/rsx_vertex_fetch.c
+@@ -39,7 +39,7 @@ void rsx_fetch_attrib(const rsx_state* st, int idx, u32 vi, float out[4])
+     out[3] = st->vertex_data4f[idx][3];
+ 
+     const rsx_vertex_attrib* a = &st->vertex_attribs[idx];
+-    if (!a->enabled || a->stride == 0 || !vm_base) return;
++    if (!a->enabled || !vm_base) return;
+ 
+     /* Vertex frequency divisor (instancing). An ordinary array
+      * (rsx_vertex_freq_plain: freq 0, or 1 with DIVIDE) is per-vertex.
+diff --git a/libs/video/tests/test_vertex_fetch_stride0.c b/libs/video/tests/test_vertex_fetch_stride0.c
+new file mode 100644
+index 00000000..6df11027
+--- /dev/null
++++ b/libs/video/tests/test_vertex_fetch_stride0.c
+@@ -0,0 +1,91 @@
++/*
++ * test_vertex_fetch_stride0.c - Test vertex attribute fetch with stride == 0.
++ *
++ * In OpenGL/RSX NV4097 hardware, an enabled vertex attribute with stride == 0
++ * specifies that all vertices fetch the exact same element from the base offset.
++ * Titles like Unreal Engine 3 (e.g. Asura's Wrath) use stride=0 attributes
++ * (such as a4:T4x4s0@L) to bind per-mesh constant diffuse colors (0xFF,0xFF,0xFF,0xFF -> (1,1,1,1)).
++ * Previously, rsx_fetch_attrib bailed on `a->stride == 0` and defaulted to (0,0,0,1),
++ * multiplying diffuse colors by zero and turning meshes pitch-black.
++ */
++#include "rsx_vertex_fetch.h"
++#include "rsx_vertex_formats.h"
++
++#include <stdint.h>
++#include <stdio.h>
++#include <string.h>
++
++enum { GUEST_BYTES = 1 << 16 };
++static uint8_t s_guest[GUEST_BYTES];
++uint8_t* vm_base = s_guest;
++
++u32 cellGcmResolveLocated(int location, u32 offset)
++{
++    (void)location;
++    return offset & (GUEST_BYTES - 1u);
++}
++
++static int fails = 0;
++#define CHECK(c, ...) do { if (!(c)) { fails++; printf("FAIL %s:%d: ", __FILE__, __LINE__); printf(__VA_ARGS__); printf("\n"); } } while (0)
++
++int main(void)
++{
++    const u32 test_off = 0x0100u;
++    /* Put 4 bytes of 0xFF (normalized UB -> 1.0f) at test_off */
++    s_guest[test_off + 0] = 0xFF;
++    s_guest[test_off + 1] = 0xFF;
++    s_guest[test_off + 2] = 0xFF;
++    s_guest[test_off + 3] = 0xFF;
++
++    rsx_state st;
++    memset(&st, 0, sizeof(st));
++    /* Constant fallback defaults to 0,0,0,1 */
++    st.vertex_data4f[4][0] = 0.0f;
++    st.vertex_data4f[4][1] = 0.0f;
++    st.vertex_data4f[4][2] = 0.0f;
++    st.vertex_data4f[4][3] = 1.0f;
++
++    /* Enable attribute 4 with stride=0, size=4, type=UB (4) */
++    st.vertex_attribs[4].enabled = 1;
++    st.vertex_attribs[4].type = RSX_VERTEX_TYPE_UB;
++    st.vertex_attribs[4].size = 4;
++    st.vertex_attribs[4].stride = 0;
++    st.vertex_attribs[4].offset = test_off;
++
++    /* All vertices vi = 0..10 should fetch (1.0, 1.0, 1.0, 1.0) */
++    for (u32 vi = 0; vi < 10; vi++) {
++        float out[4] = { 0 };
++        rsx_fetch_attrib(&st, 4, vi, out);
++        CHECK(out[0] == 1.0f && out[1] == 1.0f && out[2] == 1.0f && out[3] == 1.0f,
++              "vi=%u stride=0: got (%g,%g,%g,%g), expected (1,1,1,1)",
++              vi, out[0], out[1], out[2], out[3]);
++    }
++
++    /* Test float32 (type 2) with stride=0 */
++    const u32 f_off = 0x0200u;
++    uint8_t f_bytes[4] = { 0x3F, 0x80, 0x00, 0x00 }; /* 1.0f big-endian */
++    for (int k = 0; k < 4; k++)
++        memcpy(&s_guest[f_off + k * 4], f_bytes, 4);
++
++    st.vertex_attribs[0].enabled = 1;
++    st.vertex_attribs[0].type = RSX_VERTEX_TYPE_F;
++    st.vertex_attribs[0].size = 4;
++    st.vertex_attribs[0].stride = 0;
++    st.vertex_attribs[0].offset = f_off;
++
++    for (u32 vi = 0; vi < 5; vi++) {
++        float out[4] = { 0 };
++        rsx_fetch_attrib(&st, 0, vi, out);
++        CHECK(out[0] == 1.0f && out[1] == 1.0f && out[2] == 1.0f && out[3] == 1.0f,
++              "float vi=%u stride=0: got (%g,%g,%g,%g), expected (1,1,1,1)",
++              vi, out[0], out[1], out[2], out[3]);
++    }
++
++    if (fails == 0) {
++        printf("PASS: test_vertex_fetch_stride0 passed all assertions.\n");
++        return 0;
++    } else {
++        printf("FAIL: test_vertex_fetch_stride0 had %d failures.\n", fails);
++        return 1;
++    }
++}
+-- 
+2.52.0.windows.1
+
