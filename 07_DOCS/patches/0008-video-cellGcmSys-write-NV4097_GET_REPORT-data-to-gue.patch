@@ -1,0 +1,205 @@
+From 3933e2933b393e5cf83393704d74666e50c80b81 Mon Sep 17 00:00:00 2001
+From: KRIXSAN <krixsan@local>
+Date: Sun, 15 Nov 2026 21:58:36 +0800
+Subject: [PATCH] video/cellGcmSys: write NV4097_GET_REPORT data to guest local
+ VRAM memory
+
+---
+ libs/video/cellGcmSys.c                  |  16 ++-
+ libs/video/tests/test_gcm_report_local.c | 157 +++++++++++++++++++++++
+ 2 files changed, 170 insertions(+), 3 deletions(-)
+ create mode 100644 libs/video/tests/test_gcm_report_local.c
+
+diff --git a/libs/video/cellGcmSys.c b/libs/video/cellGcmSys.c
+index 9b434820..3e885012 100644
+--- a/libs/video/cellGcmSys.c
++++ b/libs/video/cellGcmSys.c
+@@ -2399,9 +2399,19 @@ static void gcm_3d_method(rsx_state* st, u32 m, u32 v, int legacy_state_live)
+                 vm_write32(rea + 8u, val);
+                 vm_write32(rea + 12u, 0u);
+             } else { static int un = 0; if (PS3_LOG_FIRST(un, 4)) printf("[GET_REPORT] main-memory offset 0x%X is not IO-mapped%c", off, 10); }
+-        } else if (idx < CELL_GCM_MAX_REPORT_COUNT) {
+-            s_report_data[idx].timestamp = ts;
+-            s_report_data[idx].value = val;
++        } else {
++            const u32 lea = s_config.localAddress + off;
++            if (s_config.localAddress && off + 16u <= s_config.localSize) {
++                vm_write32(lea, (u32)(ts >> 32));
++                vm_write32(lea + 4u, (u32)ts);
++                vm_write32(lea + 8u, val);
++                vm_write32(lea + 12u, 0u);
++                { static int ln = 0; if (PS3_LOG_FIRST(ln, 6)) printf("[GET_REPORT] local VRAM write lea=0x%08X val=0x%X ts=%llu%c", lea, val, (unsigned long long)ts, 10); }
++            }
++            if (idx < CELL_GCM_MAX_REPORT_COUNT) {
++                s_report_data[idx].timestamp = ts;
++                s_report_data[idx].value = val;
++            }
+         }
+     }
+ }
+diff --git a/libs/video/tests/test_gcm_report_local.c b/libs/video/tests/test_gcm_report_local.c
+new file mode 100644
+index 00000000..f18a336c
+--- /dev/null
++++ b/libs/video/tests/test_gcm_report_local.c
+@@ -0,0 +1,157 @@
++/*
++ * Test NV4097_GET_REPORT writes to both s_report_data and guest memory.
++ *
++ * For local VRAM reports (s_report_dma == 0xFEED0000, the RSX default),
++ * titles using Unreal Engine 3 (e.g. Asura's Wrath) read occlusion query
++ * sample counts directly from guest memory at localAddress + offset
++ * instead of calling HLE getter functions.
++ *
++ * When NV4097_GET_REPORT executed, the runtime previously only wrote
++ * to s_report_data (host struct) and main-memory IO mappings, leaving
++ * guest local memory zeroed. UE3 read sample count 0, concluded all
++ * queried objects were occluded, and culled the fleet and boss meshes.
++ *
++ * This test verifies that:
++ * 1. GET_REPORT with dma=0xFEED0000 writes CellGcmReportData to guest
++ *    local memory (s_config.localAddress + off) in big-endian format.
++ * 2. Host s_report_data[idx] is also populated.
++ * 3. ZPASS pixel count reports 0xFFFF (visible).
++ */
++
++#include "../cellGcmSys.c"
++#include "../rsx_tiling.c"
++#include <assert.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#ifdef _WIN32
++#include <windows.h>
++#else
++#include <sys/mman.h>
++#endif
++
++/* Mock VM base: 4GB address space allocation for testing */
++uint8_t* vm_base;
++uint32_t ppu_vm_size;
++int g_resv_store_active;
++uint32_t g_ww_lo, g_ww_hi;
++void ppu_resv_break_store(uint64_t ea) { (void)ea; }
++void ps3_ww_report_inline(uint32_t a, uint64_t v, int w) { (void)a; (void)v; (void)w; }
++int spu_coh_is_reserved(uint32_t a) { (void)a; return 0; }
++void spu_coh_notify_write(uint32_t a) { (void)a; }
++void spu_lockline_lock(void) {}
++void spu_lockline_unlock(void) {}
++ps3_guest_caller_fn g_ps3_guest_caller;
++
++/* RSX & walker stubs */
++PPU_THREAD_LOCAL ppu_context* g_active_ctx;
++u32 g_rsx_last_reference;
++void (*g_spu_put_hook)(uint32_t ea, uint32_t size);
++void ppu_dump_bctrl_ring(uint32_t n, const char* why) { (void)n; (void)why; }
++void ppu_dump_guest_stack(ppu_context* c, const char* why) { (void)c; (void)why; }
++void rsx_state_init(rsx_state* state) { (void)state; }
++int  rsx_process_method(rsx_state* state, u32 method, u32 data) { (void)state; (void)method; (void)data; return 0; }
++int  rsx_process_vp_run(rsx_state* state, u32 method, const u8* src, u32 count)
++{ (void)state; (void)method; (void)src; (void)count; return 0; }
++int  rsx_draw_engine_enabled(void) { return 0; }
++rsx_backend* rsx_get_backend(void) { return NULL; }
++void rsx_draw_engine_method(u32 method, u32 arg) { (void)method; (void)arg; }
++void rsx_draw_engine_note_flip(u32 buffer_id) { (void)buffer_id; }
++void rsx_draw_engine_set_display_buffer(u32 buffer_id, u32 location, u32 offset, u32 pitch, u32 width, u32 height)
++{ (void)buffer_id; (void)location; (void)offset; (void)pitch; (void)width; (void)height; }
++void rsx_draw_engine_guest_read(u32 l, u32 o, u32 p, u32 w, u32 h) { (void)l; (void)o; (void)p; (void)w; (void)h; }
++void rsx_draw_engine_guest_wrote(u32 l, u32 o, u32 p, u32 w, u32 h) { (void)l; (void)o; (void)p; (void)w; (void)h; }
++int  rsx_live_draw_enabled(void) { return 0; }
++void rsx_live_draw_method(u32 method, u32 arg) { (void)method; (void)arg; }
++void rsx_live_draw_set_display_buffer(u32 buffer_id, u32 location, u32 offset, u32 pitch, u32 width, u32 height)
++{ (void)buffer_id; (void)location; (void)offset; (void)pitch; (void)width; (void)height; }
++void rsx_live_draw_note_resolve(u32 a, u32 b, u32 c, u32 d) { (void)a; (void)b; (void)c; (void)d; }
++int  rsx_live_draw_blit(u32 a, u32 b, u32 c, u32 d, u32 e, u32 f, u32 w, u32 h)
++{ (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; (void)w; (void)h; return 0; }
++int  rsx_live_draw_resolve_blit(u32 a, u32 b, u32 c, u32 d, u32 e, u32 f, u32 g, u32 h,
++                                u32 i, u32 j, u32 k, u32 l)
++{ (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; (void)g; (void)h; (void)i; (void)j; (void)k; (void)l; return 0; }
++void rsx_raise_user_cmd(uint32_t arg) { (void)arg; }
++int  spu_taskset_round_busy(uint32_t* ts, uint32_t* tid) { (void)ts; (void)tid; return 0; }
++
++int main(void)
++{
++    printf("--- test_gcm_report_local ---\n");
++
++    /* Allocate 4GB virtual address space matching real ps3recomp VM */
++#ifdef _WIN32
++    vm_base = (uint8_t*)VirtualAlloc(NULL, 0x100000000ull, MEM_RESERVE, PAGE_NOACCESS);
++    assert(vm_base != NULL);
++
++    /* Commit page at 0 (for null pointers/tables) and at 0xC0000000 (local VRAM) */
++    void* p0 = VirtualAlloc(vm_base, 0x100000, MEM_COMMIT, PAGE_READWRITE);
++    assert(p0 != NULL);
++    void* p_vram = VirtualAlloc(vm_base + 0xC0000000u, 0x100000, MEM_COMMIT, PAGE_READWRITE);
++    assert(p_vram != NULL);
++#else
++    vm_base = (uint8_t*)mmap(NULL, 0x100000000ull, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++    assert(vm_base != MAP_FAILED && vm_base != NULL);
++    assert(mprotect(vm_base, 0x100000, PROT_READ | PROT_WRITE) == 0);
++    assert(mprotect(vm_base + 0xC0000000u, 0x100000, PROT_READ | PROT_WRITE) == 0);
++#endif
++
++    /* Initialize config struct directly without full cellGcmInit subsystems */
++    s_config.localAddress = 0xC0000000u;
++    s_config.localSize = 0x0F900000u;
++
++    rsx_state dummy_st;
++    memset(&dummy_st, 0, sizeof(dummy_st));
++
++    /* 1. Verify default DMA is LOCAL (0xFEED0000) */
++    gcm_3d_method(&dummy_st, 0x1A8, 0xFEED0000u, 0);
++    assert(s_report_dma == 0xFEED0000u);
++
++    /* 2. Issue GET_REPORT for ZPASS pixel count (type=1) at offset 0x7FE0 */
++    const u32 test_off = 0x7FE0u;
++    const u32 test_idx = test_off / 16u;
++    const u32 method_val = (1u << 24) | test_off;
++
++    gcm_3d_method(&dummy_st, 0x1800, method_val, 0);
++
++    /* Verify host report table */
++    assert(s_report_data[test_idx].value == 0xFFFFu);
++    assert(s_report_data[test_idx].timestamp != 0);
++
++    /* Verify guest memory at localAddress + test_off */
++    const u32 lea = s_config.localAddress + test_off;
++    const u32 r_timer_hi = vm_read32(lea);
++    const u32 r_timer_lo = vm_read32(lea + 4u);
++    const u32 r_val      = vm_read32(lea + 8u);
++    const u32 r_pad      = vm_read32(lea + 12u);
++
++    const u64 r_ts = ((u64)r_timer_hi << 32) | r_timer_lo;
++    assert(r_ts == s_report_data[test_idx].timestamp);
++    assert(r_val == 0xFFFFu);
++    assert(r_pad == 0u);
++
++    printf("PASS: Local VRAM GET_REPORT write verified (lea=0x%08X val=0x%04X ts=%llu)\n",
++           lea, r_val, (unsigned long long)r_ts);
++
++    /* 3. Issue another GET_REPORT at 0x7FD0 (type=1) */
++    const u32 test_off2 = 0x7FD0u;
++    const u32 test_idx2 = test_off2 / 16u;
++    const u32 method_val2 = (1u << 24) | test_off2;
++
++    gcm_3d_method(&dummy_st, 0x1800, method_val2, 0);
++
++    assert(s_report_data[test_idx2].value == 0xFFFFu);
++    assert(vm_read32(s_config.localAddress + test_off2 + 8u) == 0xFFFFu);
++    assert(vm_read32(s_config.localAddress + test_off2 + 12u) == 0u);
++
++    printf("PASS: Second local VRAM GET_REPORT verified (off=0x%04X)\n", test_off2);
++
++    /* Clean up */
++#ifdef _WIN32
++    VirtualFree(vm_base, 0, MEM_RELEASE);
++#else
++    munmap(vm_base, 0x100000000ull);
++#endif
++    printf("--- All test_gcm_report_local checks passed! ---\n");
++    return 0;
++}
+-- 
+2.52.0.windows.1
+

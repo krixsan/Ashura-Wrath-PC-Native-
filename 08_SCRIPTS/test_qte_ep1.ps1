@@ -40,6 +40,8 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $missDir  = Join-Path $OutDir "miss_dumps"
 New-Item -ItemType Directory -Force -Path $missDir | Out-Null
 $env:SPU_MISS_DUMP_DIR = $missDir
+if (-not $env:RSX_CENSUS_DIR) { $env:RSX_CENSUS_DIR = $OutDir }
+if (-not $env:RSX_CENSUS_TRIG) { $env:RSX_CENSUS_TRIG = Join-Path $OutDir "census.trig" }
 
 $outLog   = Join-Path $OutDir "stdout.log"
 $errLog   = Join-Path $OutDir "stderr.log"
@@ -315,6 +317,9 @@ try {
 
         if ($el -ge $nextSnapSec) {
             $snapSec = $nextSnapSec
+            if ($env:RSX_CENSUS_TRIG) {
+                try { Set-Content -Path $env:RSX_CENSUS_TRIG -Value ("t{0:D3}s" -f $snapSec) -Encoding Ascii } catch {}
+            }
             $name = ("qte_t{0:D3}s.png" -f $snapSec)
             if (Capture-Png (Join-Path $OutDir $name)) { $capturedScreenshots += $name }
 
