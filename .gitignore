@@ -96,5 +96,6 @@ gamedata/
 .vscode/
 *.bak
 *.tmp
+*.hlsl
 .DS_Store
 Thumbs.db

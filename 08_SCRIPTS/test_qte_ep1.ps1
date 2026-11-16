@@ -7,6 +7,7 @@ param(
     [switch]$PadAlwaysChange = $false,
     [switch]$SkipAutoMenus = $false,
     [string]$PadDiag = "1",
+    [int]$SaveTimeoutSec = 90,
     [int]$Ep1Sec = 0,
     [string]$OutDir = ""
 )
@@ -214,7 +215,7 @@ try {
         [void](Send-PadButton "0x0010" $p)
         Start-Sleep -Seconds 2
         [void](Send-PadButton "0x4000" $p)
-        [void](Wait-ForPattern "Stage4:SaveDiff" "SAVE complete for 'BLUS30721-BCSAVEDATA'" 1 30 $p)
+        [void](Wait-ForPattern "Stage4:SaveDiff" "SAVE complete for 'BLUS30721-BCSAVEDATA'" 1 $SaveTimeoutSec $p)
         Start-Sleep -Seconds 3
         if (Capture-Png (Join-Path $OutDir "stage_06_save_ok.png")) { $capturedScreenshots += "stage_06_save_ok.png" }
 
