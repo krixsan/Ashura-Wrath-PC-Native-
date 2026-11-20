@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 <p align="center">
-  <img src="assets/asura_hero.png" alt="Asura's Wrath PC Native Hero Cover Artwork" width="760">
+  <img src="assets/asura_cover.jpg" alt="Asura's Wrath PC Native Cover Artwork" width="420">
 </p>
 
 > **[Milestone Log & Fix History](PROGRESS.md)** | **[Open Issues & Visual Findings](docs/KNOWN_ISSUES.md)** | **[Controls & Input Mapping](docs/INPUT_MAPPING.md)**  
