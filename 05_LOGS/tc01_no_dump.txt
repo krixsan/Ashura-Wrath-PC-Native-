@@ -1,9 +1,0 @@
-=== TC-01 VERIFY (2026-11-15T05:53:14.873428) ===
-ExitCode: 1
-STDOUT:
-PORT_ROOT   : C:\PORTINGAN GAME\PS3\Ashura W
-ps3recomp   : True (C:\PORTINGAN GAME\PS3\Ashura W\02_REPOS\ps3recomp)
-ELF tidak ada: C:\PORTINGAN GAME\PS3\Ashura W\00_GAME_DUMP\nonexistent.elf
-
-STDERR:
-

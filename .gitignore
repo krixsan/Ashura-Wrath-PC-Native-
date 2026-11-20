@@ -1,101 +1,67 @@
-# Strictly ignore game dumps, keys, saves, packages, and raw binaries (Aturan 5/6 & Phase 2 Security Audit)
+# ====================================================================
+# Asura's Wrath PC Native (.gitignore)
+# ====================================================================
+
+# PS3 dumps, keys, firmware & copyrighted archives
 00_GAME_DUMP/
 01_KEYS/
 gamedata/
-*BCSAVEDATA*
-*savedata*
-*.elf
-*.ELF
-*.self
-*.SELF
-*.sprx
-*.SPRX
-*.prx
-*.PRX
-*.pkg
-*.PKG
+savedata/
 *.iso
-*.ISO
+*.pkg
 *.bin
-*.BIN
-*.rap
-*.RAP
-*.edat
-*.EDAT
-*.rif
-*.RIF
-*.klic
-*.KLIC
-*.bik
-*.BIK
-*.xxx
-*.XXX
-*.upk
-*.UPK
-*.tfc
-*.TFC
-*.sav
-*.SAV
+*.elf
+*.self
+*.sprx
 *.sfo
-*.SFO
 *.pfd
-*.PFD
-*.exe
-*.EXE
-*.dll
-*.DLL
-*.lib
-*.LIB
-*.obj
-*.OBJ
-*.pdb
-*.PDB
+*.bik
+*.xxx
+*.tfc
+*.dat
 
-# Ignore external repositories, build directories, and external tools
+# Source code, patches & build artifacts (excluded from documentation portal)
 02_REPOS/
+03_ASURASWRATH_PORT/
 04_BUILD/
+05_LOGS/
 06_TOOLS/
+07_DOCS/patches/
+08_SCRIPTS/
+src/
+recompiled/
+meta/
+spu/
+*.c
+*.cc
+*.cpp
+*.h
+*.hpp
+*.py
+*.ps1
+*.bat
+*.sh
+*.patch
+CMakeLists.txt
+config.toml
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.exp
 
-# Ignore bulk auto-generated PPU/SPU lift directories (re-generated via relift.ps1),
-# while keeping CMakeLists.txt, jobmods_register.c, and embedded SPURS spujob_* sources
-03_ASURASWRATH_PORT/recompiled/
-03_ASURASWRATH_PORT/spu/spu_00*/
-03_ASURASWRATH_PORT/meta/
-03_ASURASWRATH_PORT/*.bak*
-03_ASURASWRATH_PORT/spu/*.bak*
-
-# Ignore large logs, recordings, screenshots, and temporary scripts in 05_LOGS/
-05_LOGS/*/
-05_LOGS/*.mp4
-05_LOGS/*.png
-05_LOGS/*.jpg
-05_LOGS/*.csv
-05_LOGS/*.py
-05_LOGS/ep1_*.log
-05_LOGS/run_*.log
-05_LOGS/build_*.log
-05_LOGS/relift_*.log
-
-# Explicitly allow small audit/verification text files in 05_LOGS/
-!05_LOGS/pad_t2_t3_unit_test.log
-!05_LOGS/perf_cmp_before_after.txt
-!05_LOGS/relift_tc08_verify.txt
-!05_LOGS/save_backup_latest.txt
-!05_LOGS/spurs_job_scan.txt
-!05_LOGS/t025s_particle_quads_audit.txt
-!05_LOGS/t1_tier2_pass_audit.txt
-!05_LOGS/t2_runtime_lib_audit.txt
-!05_LOGS/task_c_spurs_audit.txt
-!05_LOGS/tc01_no_dump.txt
-!05_LOGS/tc08_relift_proof.txt
-!05_LOGS/tc09_clean_audit.txt
-!05_LOGS/tc09_git_root_verify.txt
-!05_LOGS/test_vertex_fetch_cmp.log
-
-# OS / Editor temporaries
-.vscode/
-*.bak
-*.tmp
+# Archives, logs & captures
+*.zip
+*.7z
+*.rar
+*.mp4
+*.png
 *.hlsl
+*.csv
+*.log
+*.bak
+.vs/
+.vscode/
+__pycache__/
 .DS_Store
-Thumbs.db
