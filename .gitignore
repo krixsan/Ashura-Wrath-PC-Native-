@@ -56,7 +56,8 @@ config.toml
 *.7z
 *.rar
 *.mp4
-*.png
+captures/
+screenshots/
 *.hlsl
 *.csv
 *.log

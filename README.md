@@ -6,6 +6,10 @@
 [![Target](https://img.shields.io/badge/Game-BLUS30721%20v01.00%20Base-orange.svg)](docs/KNOWN_ISSUES.md)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+<p align="center">
+  <img src="assets/asura_hero.png" alt="Asura's Wrath PC Native Hero Cover Artwork" width="760">
+</p>
+
 > **[Milestone Log & Fix History](PROGRESS.md)** | **[Open Issues & Visual Findings](docs/KNOWN_ISSUES.md)** | **[Controls & Input Mapping](docs/INPUT_MAPPING.md)**  
 > Compatibility tracking and technical progress portal for the native static recompilation of **Asura's Wrath** (`BLUS30721`, PlayStation 3, Unreal Engine 3) running on **Windows 10/11 x64 + Direct3D 12**.  
 > **Important:** This is an active **work-in-progress (`WIP`) documentation portal**. **No source code, patches, prebuilt `.exe` binaries, PS3 dumps, decryption keys, or copyrighted assets are distributed here.**
